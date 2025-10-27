@@ -6,15 +6,15 @@ namespace Samples;
 //todo, this sucks, solely for sample purposes (todo include builtin online compiler for magpievk)
 
 public unsafe class ShaderCompiler : IDisposable {
-    public CompilerCtx _compilerCtx;
+    public CompilerCtx CompilerCtx;
 
     public ShaderCompiler() {
-        _compilerCtx = new CompilerCtx();
-        _compilerCtx._options.CustomIncludeHandler = DefaultIncludeHandler;
+        CompilerCtx = new CompilerCtx();
+        CompilerCtx._options.CustomIncludeHandler = DefaultIncludeHandler;
     }
 
     public void SetCustomIncludeHandler(CompilerCtx.Options.IncludeHandler handler) {
-        _compilerCtx._options.CustomIncludeHandler = handler;
+        CompilerCtx._options.CustomIncludeHandler = handler;
     }
 
     private CompilerCtx.IncludeResult DefaultIncludeHandler(string requestedSource, string requestingSource, IncludeType type) {
@@ -42,15 +42,15 @@ public unsafe class ShaderCompiler : IDisposable {
     }
 
     public ReadOnlySpan<byte> CompileShader(string path, ShaderKind kind, bool debug = false) {
-        _compilerCtx._options.SetSourceLanguage(LangKind.Glsl);
-        _compilerCtx._options.SetTargetEnv(TargetEnv.Vulkan, Vortice.Vulkan.VkVersion.Version_1_3);
-        _compilerCtx._options.SetTargetSpirv(SpirvVersion.Spirv13);
-        _compilerCtx._options.SetGenerateDebugInfo(debug);
-        _compilerCtx._options.SetOptimizationLevel(debug ? OptimizationLevel.None : OptimizationLevel.Performance);
+        CompilerCtx._options.SetSourceLanguage(LangKind.Glsl);
+        CompilerCtx._options.SetTargetEnv(TargetEnv.Vulkan, Vortice.Vulkan.VkVersion.Version_1_3);
+        CompilerCtx._options.SetTargetSpirv(SpirvVersion.Spirv13);
+        CompilerCtx._options.SetGenerateDebugInfo(debug);
+        CompilerCtx._options.SetOptimizationLevel(debug ? OptimizationLevel.None : OptimizationLevel.Performance);
 
         string shaderCode = File.ReadAllText(path);
 
-        using (var compileResult = _compilerCtx.Compile(shaderCode, kind, path, "main")) {
+        using (var compileResult = CompilerCtx.Compile(shaderCode, kind, path, "main")) {
             if (compileResult.CompilationStatus != Status.Success) {
                 if (compileResult.NumWarnings > 0) {
                     Console.WriteLine($"shader compilation warnings for {path}:\n{compileResult.ErrorMessage}");
@@ -63,15 +63,15 @@ public unsafe class ShaderCompiler : IDisposable {
             }
             
 
-            return compileResult.GetSPVBytes();
+            return compileResult.GetBytesCopy();
         }
     }
     
     public ReflectedShaderData ReflectShader(byte[] spirvBytes, Backend backend) {
-        return _compilerCtx.AttemptSPVReflect(spirvBytes, backend);
+        return CompilerCtx.AttemptSpvReflect(spirvBytes, backend);
     }
 
     public void Dispose() {
-        _compilerCtx.Dispose();
+        CompilerCtx.Dispose();
     }
 }

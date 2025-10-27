@@ -31,8 +31,8 @@ internal sealed class VkSample {
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
         
-        Console.WriteLine(reflectedData);
-        Console.WriteLine(reflectedData.ReflectedCode);
+        //Console.WriteLine(reflectedData);
+        //Console.WriteLine(reflectedData.ReflectedCode);
         
         while (Quit == false) {
             Time.Start();
@@ -52,5 +52,12 @@ internal sealed class VkSample {
             
             Time.Stop();
         }
+        
+        Dispose();
+    }
+
+    private void Dispose() {
+        _vkInstance.Dispose();
+        _vkContext.Dispose();
     }
 }
