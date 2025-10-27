@@ -1,0 +1,67 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+        <DestinationFolder>./resources/SPIRV</DestinationFolder>
+
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="../Magpie/Magpie.csproj" />
+      <ProjectReference Include="..\..\..\ShaderCompilation\src\ShaderCompilation\ShaderCompilation.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations" Version="2025.2.2" />
+        <PackageReference Include="SDL3-CS" Version="3.2.16.1" />
+        <PackageReference Include="SDL3-CS.Native" Version="3.2.20" />
+        <PackageReference Include="SDL3-CS.Native.Image" Version="3.2.4" />
+        <PackageReference Include="shaderc.net" Version="0.1.0" />
+        <PackageReference Include="Silk.NET.Assimp" Version="2.22.0" />
+        <PackageReference Include="Silk.NET.Shaderc" Version="2.22.0" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+        <PackageReference Include="Vortice.ShaderCompiler" Version="1.8.0" />
+        <PackageReference Include="Vortice.Vulkan" Version="2.1.3" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="SDL3.dll">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+        
+      <None Update="resources/hashbrown.jpg">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+        
+      <None Update="resources\hashbrown.png">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+        
+      <None Update="resources\common.glsl">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+        
+      <None Update="resources\shader.frag">
+        <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+    
+
+    <ItemGroup>
+        <None Update="**/*.spv">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <None Update="**/*.vert">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <None Update="**/*.frag">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+</Project>

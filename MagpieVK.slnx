@@ -1,0 +1,7 @@
+﻿<Solution>
+  <Folder Name="/github/">
+    <File Path=".gitignore" />
+  </Folder>
+  <Project Path="src\Samples\Samples.csproj" Type="Classic C#" />
+  <Project Path="src\Magpie\Magpie.csproj" Type="Classic C#" />
+</Solution>
