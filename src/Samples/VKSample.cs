@@ -37,10 +37,15 @@ internal sealed unsafe class VkSample {
 
         _windowHandle = new SdlWindow("magpi", 400, 400, SDL.WindowFlags.Vulkan |  SDL.WindowFlags.Transparent);
 
-        _vkInstance.TryGetBestPhysicalDevice(["a"], out var device);
-
         _vkSurface = new((ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
+        
+        if (!_vkInstance.TryGetBestPhysicalDevice(["a"], out var device)) {
+            throw new InvalidOperationException("No valid physical device found");
+        }
 
+        var asd = device.FindQueueFamilies();
+        Console.WriteLine(asd.graphics);
+        
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
         

@@ -25,40 +25,48 @@ public unsafe struct PhysicalDevice(VkPhysicalDevice value) {
         return memoryProperties;
     }
 
-    public QueueFamily FindQueueFamilies(PhysicalDevice device) {
-        uint familyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(Value, out familyCount);
-
-        ReadOnlySpan<VkQueueFamilyProperties> families = stackalloc VkQueueFamilyProperties[(int)familyCount];
-        fixed(VkQueueFamilyProperties* f = families)
-            vkGetPhysicalDeviceQueueFamilyProperties(Value, &familyCount, f);
+    public readonly (uint graphics, uint present) FindQueueFamilies() {
+        if (Value.IsNull) {
+            throw new InvalidOperationException("invalid physical device handle.");
+        }
         
+        var queueFamilies = vkGetPhysicalDeviceQueueFamilyProperties(Value);
         uint graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
         uint presentFamily = VK_QUEUE_FAMILY_IGNORED;
-        
-        QueueFamily family = default;
-        
-        for (uint i = 0; i < families.Length; i++) {
-            VkQueueFamilyProperties queueFamily = families[(int)i];
+        for (uint i = 0; i < queueFamilies.Length; i++) {
+            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
             if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
                 graphicsFamily = i;
                 continue;
-            }   
-
-            if (graphicsFamily != VK_QUEUE_FAMILY_IGNORED) {
-                break;
             }
 
-            family = new QueueFamily { GraphicsFamily = graphicsFamily, PresentFamily = presentFamily };
+            // vkGetPhysicalDeviceSurfaceSupportKHR(value, i, surface.value, out VkBool32 supportsPresenting);
+            // if (supportsPresenting)
+            // {
+            //     presentFamily = i;
+            // }
+
+            if (graphicsFamily != VK_QUEUE_FAMILY_IGNORED)
+            {
+                break;
+            }
         }
 
-        return family;
+        return (graphicsFamily, presentFamily);
     }
 
-    public bool IsDeviceSuitable(PhysicalDevice device) {
-        var indices = FindQueueFamilies(device);
+    public readonly bool TryGetGraphicsQueueFamily(out uint graphicsFamily) {
+        var queueFamilies = vkGetPhysicalDeviceQueueFamilyProperties(Value);
+        for (uint i = 0; i < queueFamilies.Length; i++) {
+            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
+            if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
+                graphicsFamily = i;
+                return true;
+            }
+        }
 
-        return indices.GraphicsFamily.HasValue;
+        graphicsFamily = default;
+        return false;
     }
     
     public struct QueueFamily {

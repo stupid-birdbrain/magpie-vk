@@ -216,12 +216,14 @@ public unsafe struct VulkanInstance : IDisposable {
         foreach(var deviceHandle in devices) {
             var physicalDevice = new PhysicalDevice(deviceHandle);
             
-            var props = physicalDevice.GetProperties();
-            var mem = physicalDevice.GetMemoryProperties();
-            Console.WriteLine($"Device name: {new VkUtf8String(props.deviceName)}");
-            Console.WriteLine($"Device type: {props.deviceType}");
-            var apiVersion = new VkVersion(props.apiVersion);
-            Console.WriteLine($"vk api version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
+            // var props = physicalDevice.GetProperties();
+            // var mem = physicalDevice.GetMemoryProperties();
+            // Console.WriteLine($"Device name: {new VkUtf8String(props.deviceName)}");
+            // Console.WriteLine($"Device type: {props.deviceType}");
+            // var apiVersion = new VkVersion(props.apiVersion);
+            // Console.WriteLine($"vk api version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
+            
+            device =  physicalDevice;
         }
         
         return true;
