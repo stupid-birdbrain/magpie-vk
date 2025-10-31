@@ -6,7 +6,7 @@ namespace Magpie.Core;
 /// <summary>
 ///     Contains info related to the vulkan library, such as version, name, global layers, etc.
 /// </summary>
-public unsafe class VkCtx : IDisposable {
+public sealed unsafe class VkCtx : IDisposable {
     public readonly VkVersion Version;
 
     private readonly string _name;

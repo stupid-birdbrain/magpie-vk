@@ -2,19 +2,25 @@
 using Magpie.Graphics;
 using SDL3;
 using ShaderCompilation;
+using StainedGlass;
 using Vortice.SpirvCross;
+using Vortice.Vulkan;
 
 namespace Samples;
 
-internal sealed class VkSample {
-    private Window? _window;
+internal sealed unsafe class VkSample {
     public bool Quit;
 
-    public GraphicsDevice Graphics;
-    private VkCtx _vkContext;
+    public GraphicsDevice? Graphics;
+    private VkCtx? _vkContext;
+    private SdlCtx? _sdlContext;
     private VulkanInstance _vkInstance;
+
+    private SdlWindow _windowHandle;
     
     private ShaderCompiler? _compiler;
+    
+    private VkSurfaceKHR _vkSurface;
     
     public void Initialize(string[] args) { 
         if(SDL.Init(SDL.InitFlags.Video | SDL.InitFlags.Gamepad) == false) {
@@ -22,11 +28,18 @@ internal sealed class VkSample {
             throw new Exception($"Failed to start SDL: {error}");
         }
         
-        _window = new Window("magpievktests", 1200, 800, SDL.WindowFlags.Resizable);
         _compiler = new ShaderCompiler();
+        
         _vkContext = new VkCtx("vulkan");
+        _sdlContext = new SdlCtx(SDL.InitFlags.Video | SDL.InitFlags.Events);
         
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
+
+        _windowHandle = new SdlWindow("magpi", 400, 400, SDL.WindowFlags.Vulkan |  SDL.WindowFlags.Transparent);
+
+        _vkInstance.TryGetBestPhysicalDevice(["a"], out var device);
+
+        _vkSurface = new((ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
 
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
@@ -57,7 +70,11 @@ internal sealed class VkSample {
     }
 
     private void Dispose() {
+        Vulkan.vkDestroySurfaceKHR(_vkInstance, _vkSurface, null);
+        
         _vkInstance.Dispose();
         _vkContext.Dispose();
+        _sdlContext.Dispose();
+        _windowHandle.Dispose();
     }
 }

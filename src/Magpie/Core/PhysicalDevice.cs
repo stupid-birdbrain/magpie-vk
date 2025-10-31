@@ -2,21 +2,17 @@ using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Graphics;
-
-public struct PhysicalDevice {
-    public readonly VkPhysicalDevice Value;
-
-    public PhysicalDevice(VkPhysicalDevice value) {
-        Value = value;
-    }
+    
+/// <summary>
+///     Represents a GPU. Contains info like vendor id, memory properties, avaliable extensions, etc.
+/// </summary>
+public unsafe struct PhysicalDevice(VkPhysicalDevice value) {
+    internal readonly VkPhysicalDevice Value = value;
+    public readonly nint Address => Value.Handle;
     
     public readonly VkPhysicalDeviceProperties GetProperties() {
         vkGetPhysicalDeviceProperties(Value, out VkPhysicalDeviceProperties properties);
         return properties;
-    }
-    
-    public readonly ReadOnlySpan<VkExtensionProperties> GetExtensions() {
-        return vkEnumerateDeviceExtensionProperties(Value);
     }
     
     public readonly VkPhysicalDeviceFeatures GetFeatures() {
@@ -24,92 +20,53 @@ public struct PhysicalDevice {
         return features;
     }
     
-    public unsafe readonly VkSurfaceCapabilitiesKHR GetSurfaceCapabilities(VkSurfaceKHR surface) {
-        VkSurfaceCapabilitiesKHR capabilities = default;
-        VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Value, surface, &capabilities);
-        if (result != VkResult.Success)
-        {
-            throw new Exception($"Failed to get physical device surface capabilities: {result}");
-        }
-
-        return capabilities;
-    }
-    
-    public readonly ReadOnlySpan<VkSurfaceFormatKHR> GetSurfaceFormats(VkSurfaceKHR surface)
-    {
-        return vkGetPhysicalDeviceSurfaceFormatsKHR(Value, surface);
-    }
-
-    public readonly ReadOnlySpan<VkPresentModeKHR> GetSurfacePresentModes(VkSurfaceKHR surface)
-    {
-        return vkGetPhysicalDeviceSurfacePresentModesKHR(Value, surface);
-    }
-
-    public readonly VkPhysicalDeviceLimits GetLimits()
-    {
-        vkGetPhysicalDeviceProperties(Value, out VkPhysicalDeviceProperties properties);
-        return properties.limits;
-    }
-
-    public readonly ReadOnlySpan<VkQueueFamilyProperties> GetAllQueueFamilies()
-    {
-        return vkGetPhysicalDeviceQueueFamilyProperties(Value);
-    }
-    
-    public VkFormatProperties GetFormatProperties(VkFormat format)
-    {
-        vkGetPhysicalDeviceFormatProperties(Value, format, out var properties);
-        return properties;
-    }
-
     public VkPhysicalDeviceMemoryProperties GetMemoryProperties() {
         vkGetPhysicalDeviceMemoryProperties(Value, out VkPhysicalDeviceMemoryProperties memoryProperties);
         return memoryProperties;
     }
-    
-    public readonly (uint? graphics, uint? present) GetQueueFamilies(VkSurfaceKHR surface)
-    {
-        ReadOnlySpan<VkQueueFamilyProperties> queueFamilies = GetAllQueueFamilies();
+
+    public QueueFamily FindQueueFamilies(PhysicalDevice device) {
+        uint familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(Value, out familyCount);
+
+        ReadOnlySpan<VkQueueFamilyProperties> families = stackalloc VkQueueFamilyProperties[(int)familyCount];
+        fixed(VkQueueFamilyProperties* f = families)
+            vkGetPhysicalDeviceQueueFamilyProperties(Value, &familyCount, f);
+        
         uint graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
         uint presentFamily = VK_QUEUE_FAMILY_IGNORED;
-        for (uint i = 0; i < queueFamilies.Length; i++)
-        {
-            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
-            if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None)
-            {
+        
+        QueueFamily family = default;
+        
+        for (uint i = 0; i < families.Length; i++) {
+            VkQueueFamilyProperties queueFamily = families[(int)i];
+            if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
                 graphicsFamily = i;
                 continue;
-            }
+            }   
 
-            vkGetPhysicalDeviceSurfaceSupportKHR(Value, i, surface, out VkBool32 supportsPresenting);
-            if (supportsPresenting)
-            {
-                presentFamily = i;
-            }
-
-            if (graphicsFamily != VK_QUEUE_FAMILY_IGNORED && presentFamily != VK_QUEUE_FAMILY_IGNORED)
-            {
+            if (graphicsFamily != VK_QUEUE_FAMILY_IGNORED) {
                 break;
             }
+
+            family = new QueueFamily { GraphicsFamily = graphicsFamily, PresentFamily = presentFamily };
         }
 
-        return (graphicsFamily, presentFamily);
+        return family;
     }
 
-    public readonly bool TryGetGraphicsQueueFamily(out uint graphicsFamily)
-    {
-        ReadOnlySpan<VkQueueFamilyProperties> queueFamilies = GetAllQueueFamilies();
-        for (uint i = 0; i < queueFamilies.Length; i++)
-        {
-            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
-            if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None)
-            {
-                graphicsFamily = i;
-                return true;
-            }
-        }
+    public bool IsDeviceSuitable(PhysicalDevice device) {
+        var indices = FindQueueFamilies(device);
 
-        graphicsFamily = default;
-        return false;
+        return indices.GraphicsFamily.HasValue;
+    }
+    
+    public struct QueueFamily {
+        public uint? GraphicsFamily { get; set; }
+        public uint? PresentFamily { get; set; }
+    
+        public bool IsComplete() {
+            return GraphicsFamily.HasValue && PresentFamily.HasValue;
+        }
     }
 }

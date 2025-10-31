@@ -1,4 +1,5 @@
-﻿using Magpie.Utilities;
+﻿using Magpie.Graphics;
+using Magpie.Utilities;
 using SDL3;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -39,6 +40,8 @@ public unsafe struct VulkanInstance : IDisposable {
     
     private readonly VkStringArray _enabledLayerNamesArray;
     private readonly VkStringArray _enabledExtensionNamesArray;
+
+    private List<PhysicalDevice> _devices = [];
     
     public VulkanInstance(VkCtx libraryContext, string appName, string engineName) {
         List<string> inputLayers = new();
@@ -124,7 +127,7 @@ public unsafe struct VulkanInstance : IDisposable {
         }
         #if DEBUG
         Console.ForegroundColor =  ConsoleColor.Cyan;
-        Console.WriteLine($"MAGPIE: created magpievk instance, app context: {appName}, {engineName}");
+        Console.WriteLine($"MAGPIE: created magpievk instance, app context: {appName}, {engineName}, {Address.ToString("X")}");
         Console.ForegroundColor =  ConsoleColor.Gray;
         
         Console.WriteLine($"enabled layers: [{string.Join(", ", inputLayers)}]");
@@ -174,10 +177,6 @@ public unsafe struct VulkanInstance : IDisposable {
     private static uint DebugMessengerCallback(VkDebugUtilsMessageSeverityFlagsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageTypes, VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* userData) {
         var message = new string((sbyte*)pCallbackData->pMessage);
 
-        Console.WriteLine(messageTypes == VkDebugUtilsMessageTypeFlagsEXT.Validation
-            ? $"Validation: {messageSeverity} | {message}"
-            : $"{messageSeverity} - {message}");
-
         switch(messageSeverity) {
             case VkDebugUtilsMessageSeverityFlagsEXT.Error: Console.ForegroundColor = ConsoleColor.Red;
                 break;
@@ -190,10 +189,63 @@ public unsafe struct VulkanInstance : IDisposable {
             default: Console.ForegroundColor = ConsoleColor.Gray;
                 break;
         }
+        
+        Console.WriteLine(messageTypes == VkDebugUtilsMessageTypeFlagsEXT.Validation
+            ? $"Validation: {messageSeverity} | {message}"
+            : $"{messageSeverity} - {message}");
 
         return Vulkan.VK_FALSE;
     }
 
+    public bool TryGetBestPhysicalDevice(ReadOnlySpan<string> desiredExtensions, out PhysicalDevice device) {
+        device = default;
+        
+        uint deviceCount = 0;
+        Vulkan.vkEnumeratePhysicalDevices(Value, &deviceCount, null);
+        
+        if(deviceCount == 0) {
+            throw new Exception("failed to find devices with vk support");
+        }
+        
+        Span<VkPhysicalDevice> devices = stackalloc VkPhysicalDevice[(int)deviceCount];
+
+        fixed(VkPhysicalDevice* devicesPtr = devices)
+            Vulkan.vkEnumeratePhysicalDevices(Value, &deviceCount, devicesPtr);
+        
+        Console.WriteLine("Available GPUs:");
+        foreach(var deviceHandle in devices) {
+            var physicalDevice = new PhysicalDevice(deviceHandle);
+            
+            var props = physicalDevice.GetProperties();
+            var mem = physicalDevice.GetMemoryProperties();
+            Console.WriteLine($"Device name: {new VkUtf8String(props.deviceName)}");
+            Console.WriteLine($"Device type: {props.deviceType}");
+            var apiVersion = new VkVersion(props.apiVersion);
+            Console.WriteLine($"vk api version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
+        }
+        
+        return true;
+    }
+
+    private static string FormatBytes(ulong bytes) {
+        const long gb = 1024L * 1024L * 1024L;
+        const long mb = 1024L * 1024L;
+        const long kb = 1024L;
+
+        if (bytes >= gb) {
+            return $"{bytes / (double)gb:0.00} GB";
+        }
+        else if (bytes >= mb) {
+            return $"{bytes / (double)mb:0.00} MB";
+        }
+        else if (bytes >= kb) {
+            return $"{bytes / (double)kb:0.00} KB";
+        }
+        else {
+            return $"{bytes} B";
+        }
+    }
+    
     public void Dispose() {
         if(DebugMessenger != default(VkDebugUtilsMessengerEXT)) {
             Vulkan.vkDestroyDebugUtilsMessengerEXT(this, DebugMessenger);
@@ -204,4 +256,5 @@ public unsafe struct VulkanInstance : IDisposable {
     }
     
     public static implicit operator VkInstance(VulkanInstance instance) => instance.Value;
+    public static implicit operator nint(VulkanInstance instance) => instance.Address;
 }
