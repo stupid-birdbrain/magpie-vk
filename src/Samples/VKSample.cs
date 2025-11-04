@@ -39,12 +39,11 @@ internal sealed unsafe class VkSample {
 
         _vkSurface = new((ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
         
-        if (!_vkInstance.TryGetBestPhysicalDevice(["a"], out var device)) {
+        if (!_vkInstance.TryGetBestPhysicalDevice(["VK_KHR_swapchain"], out var device)) {
             throw new InvalidOperationException("No valid physical device found");
         }
-
-        var asd = device.FindQueueFamilies();
-        Console.WriteLine(asd.graphics);
+        
+        Console.WriteLine("selected physical device info:" + device.ToString());
         
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);

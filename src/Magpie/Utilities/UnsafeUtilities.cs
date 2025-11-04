@@ -16,7 +16,7 @@ public static class UnsafeUtilities {
     public static unsafe string ToString(byte* str)
     {
         var stra = Marshal.PtrToStringAnsi((IntPtr)str);
-        return stra;
+        return stra!;
         
     }
     

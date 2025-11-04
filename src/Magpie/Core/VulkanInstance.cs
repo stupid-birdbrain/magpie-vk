@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Vortice.Vulkan;
+using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Core;
 
@@ -41,7 +42,7 @@ public unsafe struct VulkanInstance : IDisposable {
     private readonly VkStringArray _enabledLayerNamesArray;
     private readonly VkStringArray _enabledExtensionNamesArray;
 
-    private List<PhysicalDevice> _devices = [];
+    private List<PhysicalDevice> _devices;
     
     public VulkanInstance(VkCtx libraryContext, string appName, string engineName) {
         List<string> inputLayers = new();
@@ -133,6 +134,22 @@ public unsafe struct VulkanInstance : IDisposable {
         Console.WriteLine($"enabled layers: [{string.Join(", ", inputLayers)}]");
         Console.WriteLine($"enabled extensions: [{string.Join(", ", requiredExtensions)}]");
         #endif
+          
+        
+        uint physicalDeviceCount = 0;
+        vkEnumeratePhysicalDevices(Value, &physicalDeviceCount, null);
+
+        _devices = new((int)physicalDeviceCount);
+        var physicalDevicesPointer = stackalloc VkPhysicalDevice[(int)physicalDeviceCount];
+        result = vkEnumeratePhysicalDevices(Value, &physicalDeviceCount, physicalDevicesPointer);
+        
+        if(result != VkResult.Success) throw new Exception($"failed to enumerate valid physical device contestants! {result}");
+
+        for (int i = 0; i < physicalDeviceCount; i++) {
+            _devices.Add(new(physicalDevicesPointer[i]));
+        }
+        
+        Console.WriteLine($"physical device count: {_devices.Count}");
         
         static bool containsAll(ReadOnlySpan<string> a, ReadOnlySpan<string> b) {
             foreach (string layer in b) {
@@ -194,66 +211,67 @@ public unsafe struct VulkanInstance : IDisposable {
             ? $"Validation: {messageSeverity} | {message}"
             : $"{messageSeverity} - {message}");
 
-        return Vulkan.VK_FALSE;
+        return VK_FALSE;
     }
 
-    public bool TryGetBestPhysicalDevice(ReadOnlySpan<string> desiredExtensions, out PhysicalDevice device) {
+    public readonly bool TryGetBestPhysicalDevice(ReadOnlySpan<string> requiredExtensions, out PhysicalDevice device) {
+        uint highestScore = 0;
         device = default;
         
-        uint deviceCount = 0;
-        Vulkan.vkEnumeratePhysicalDevices(Value, &deviceCount, null);
-        
-        if(deviceCount == 0) {
-            throw new Exception("failed to find devices with vk support");
-        }
-        
-        Span<VkPhysicalDevice> devices = stackalloc VkPhysicalDevice[(int)deviceCount];
-
-        fixed(VkPhysicalDevice* devicesPtr = devices)
-            Vulkan.vkEnumeratePhysicalDevices(Value, &deviceCount, devicesPtr);
-        
-        Console.WriteLine("Available GPUs:");
-        foreach(var deviceHandle in devices) {
-            var physicalDevice = new PhysicalDevice(deviceHandle);
+        for (int i = 0; i < _devices.Count; i++) {
+            var score = getScore(_devices[i], requiredExtensions);
             
-            // var props = physicalDevice.GetProperties();
-            // var mem = physicalDevice.GetMemoryProperties();
-            // Console.WriteLine($"Device name: {new VkUtf8String(props.deviceName)}");
-            // Console.WriteLine($"Device type: {props.deviceType}");
-            // var apiVersion = new VkVersion(props.apiVersion);
-            // Console.WriteLine($"vk api version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
+            if (score > highestScore) {
+                highestScore = score;
+                device = _devices[i];
+            }
+        }
+
+        return device != default;
+
+        static unsafe uint getScore(PhysicalDevice physicalDevice, ReadOnlySpan<string> requiredExtensions) {
+            if (!physicalDevice.TryGetGraphicsQueueFamily(out _)) {
+                return 0;
+            }
+
+            var availableExtensions = physicalDevice.GetExtensions();
+            if (availableExtensions.Length > 0) {
+                foreach (var requiredExtension in requiredExtensions) {
+                    bool isAvailable = false;
+                    foreach (VkExtensionProperties extension in availableExtensions) {
+                        var extensionName = Marshal.PtrToStringAnsi((IntPtr)extension.extensionName);
+                        if (extensionName == requiredExtension) {
+                            isAvailable = true;
+                            break;
+                        }
+                    }
+
+                    if (!isAvailable) {
+                        return 0;
+                    }
+                }
+            }
+            else if (requiredExtensions.Length > 0) {
+                return 0;
+            }
+
+            var props = physicalDevice.GetProperties();
+            uint score = props.limits.maxImageDimension2D;
             
-            device =  physicalDevice;
-        }
-        
-        return true;
-    }
+            if (props.deviceType == VkPhysicalDeviceType.DiscreteGpu) {
+                score *= 1024;
+            }
 
-    private static string FormatBytes(ulong bytes) {
-        const long gb = 1024L * 1024L * 1024L;
-        const long mb = 1024L * 1024L;
-        const long kb = 1024L;
-
-        if (bytes >= gb) {
-            return $"{bytes / (double)gb:0.00} GB";
-        }
-        else if (bytes >= mb) {
-            return $"{bytes / (double)mb:0.00} MB";
-        }
-        else if (bytes >= kb) {
-            return $"{bytes / (double)kb:0.00} KB";
-        }
-        else {
-            return $"{bytes} B";
+            return score;
         }
     }
     
     public void Dispose() {
         if(DebugMessenger != default(VkDebugUtilsMessengerEXT)) {
-            Vulkan.vkDestroyDebugUtilsMessengerEXT(this, DebugMessenger);
+            vkDestroyDebugUtilsMessengerEXT(this, DebugMessenger);
         }
         
-        Vulkan.vkDestroyInstance(this);
+        vkDestroyInstance(this);
         Value = default;
     }
     

@@ -1,3 +1,4 @@
+using System.Text;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -6,7 +7,7 @@ namespace Magpie.Graphics;
 /// <summary>
 ///     Represents a GPU. Contains info like vendor id, memory properties, avaliable extensions, etc.
 /// </summary>
-public unsafe struct PhysicalDevice(VkPhysicalDevice value) {
+public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) {
     internal readonly VkPhysicalDevice Value = value;
     public readonly nint Address => Value.Handle;
     
@@ -24,42 +25,51 @@ public unsafe struct PhysicalDevice(VkPhysicalDevice value) {
         vkGetPhysicalDeviceMemoryProperties(Value, out VkPhysicalDeviceMemoryProperties memoryProperties);
         return memoryProperties;
     }
+    
+    public readonly ReadOnlySpan<VkExtensionProperties> GetExtensions() {
+        return vkEnumerateDeviceExtensionProperties(value);
+    }
 
-    public readonly (uint graphics, uint present) FindQueueFamilies() {
+    public readonly QueueFamily FindQueueFamilies(VkSurfaceKHR surface) {
         if (Value.IsNull) {
-            throw new InvalidOperationException("invalid physical device handle.");
+            throw new InvalidOperationException("Invalid physical device handle.");
         }
         
-        var queueFamilies = vkGetPhysicalDeviceQueueFamilyProperties(Value);
-        uint graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
-        uint presentFamily = VK_QUEUE_FAMILY_IGNORED;
-        for (uint i = 0; i < queueFamilies.Length; i++) {
-            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
+        uint familyCount;
+        vkGetPhysicalDeviceQueueFamilyProperties(Value, out familyCount);
+        
+        ReadOnlySpan<VkQueueFamilyProperties> families = stackalloc VkQueueFamilyProperties[(int)familyCount];
+        fixed(VkQueueFamilyProperties* f = families)
+            vkGetPhysicalDeviceQueueFamilyProperties(Value, &familyCount, f);
+
+        uint? graphicsFamilyIndex = null;
+        uint? presentFamilyIndex = null;
+
+        for (uint i = 0; i < families.Length; i++) {
+            VkQueueFamilyProperties queueFamily = families[(int)i];
+
             if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
-                graphicsFamily = i;
-                continue;
+                graphicsFamilyIndex = i;
             }
 
-            // vkGetPhysicalDeviceSurfaceSupportKHR(value, i, surface.value, out VkBool32 supportsPresenting);
-            // if (supportsPresenting)
-            // {
-            //     presentFamily = i;
-            // }
+            vkGetPhysicalDeviceSurfaceSupportKHR(Value, i, surface, out var supportsPresenting);
+            if (supportsPresenting) {
+                presentFamilyIndex = i;
+            }
 
-            if (graphicsFamily != VK_QUEUE_FAMILY_IGNORED)
-            {
+            if (graphicsFamilyIndex.HasValue && presentFamilyIndex.HasValue) {
                 break;
             }
         }
 
-        return (graphicsFamily, presentFamily);
+        return new QueueFamily() {GraphicsFamily = graphicsFamilyIndex, PresentFamily = presentFamilyIndex};
     }
-
-    public readonly bool TryGetGraphicsQueueFamily(out uint graphicsFamily) {
+    
+    public bool TryGetGraphicsQueueFamily(out uint graphicsFamily) {
         var queueFamilies = vkGetPhysicalDeviceQueueFamilyProperties(Value);
         for (uint i = 0; i < queueFamilies.Length; i++) {
-            VkQueueFamilyProperties queueFamily = queueFamilies[(int)i];
-            if ((queueFamily.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
+            var family = queueFamilies[(int)i];
+            if ((family.queueFlags & VkQueueFlags.Graphics) != VkQueueFlags.None) {
                 graphicsFamily = i;
                 return true;
             }
@@ -75,6 +85,74 @@ public unsafe struct PhysicalDevice(VkPhysicalDevice value) {
     
         public bool IsComplete() {
             return GraphicsFamily.HasValue && PresentFamily.HasValue;
+        }
+    }
+    
+    public static bool operator ==(PhysicalDevice left, PhysicalDevice right) {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(PhysicalDevice left, PhysicalDevice right) {
+        return !(left == right);
+    }
+    
+    public ulong GetTotalGpuMemoryBytes()
+    {
+        var memoryProperties = GetMemoryProperties();
+        ulong totalMemory = 0;
+        for (int i = 0; i < memoryProperties.memoryHeapCount; i++)
+        {
+            totalMemory += memoryProperties.memoryHeaps[i].size;
+        }
+        return totalMemory;
+    }
+
+    public override string ToString() {
+        var sb = new StringBuilder();
+        var props = GetProperties();
+        var mem = GetMemoryProperties();
+        var apiVersion = new VkVersion(props.apiVersion);
+
+        sb.AppendLine($"device name: {new VkUtf8String(props.deviceName)}");
+        sb.AppendLine($"device type: {props.deviceType}");
+
+        ulong totalGpuMemory = GetTotalGpuMemoryBytes();
+        sb.AppendLine($"total gpu Memory: {FormatBytes(totalGpuMemory)}");
+
+        sb.AppendLine($"vkapi version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
+#if DEBUG
+        sb.AppendLine("memory heaps:");
+        for (int i = 0; i < mem.memoryHeapCount; i++) {
+            var heap = mem.memoryHeaps[i];
+            sb.AppendLine($"heap {i}: size = {FormatBytes(heap.size)}, flags = {heap.flags}");
+        }
+
+        sb.AppendLine("Memory Types:");
+        for (int i = 0; i < mem.memoryTypeCount; i++) {
+            var type = mem.memoryTypes[i];
+            sb.AppendLine($"type {i}: heap idx = {type.heapIndex}, prop flags = {type.propertyFlags}");
+        }
+#endif
+        
+        return sb.ToString();
+    }
+    
+    private static string FormatBytes(ulong bytes) {
+        const long gb = 1024L * 1024L * 1024L;
+        const long mb = 1024L * 1024L;
+        const long kb = 1024L;
+
+        if (bytes >= gb) {
+            return $"{bytes / (double)gb:0.00} GB";
+        }
+        else if (bytes >= mb) {
+            return $"{bytes / (double)mb:0.00} MB";
+        }
+        else if (bytes >= kb) {
+            return $"{bytes / (double)kb:0.00} KB";
+        }
+        else {
+            return $"{bytes} B";
         }
     }
 }
