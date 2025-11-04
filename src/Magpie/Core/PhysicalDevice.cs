@@ -88,23 +88,16 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) {
         }
     }
     
-    public static bool operator ==(PhysicalDevice left, PhysicalDevice right) {
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(PhysicalDevice left, PhysicalDevice right) {
-        return !(left == right);
-    }
-    
-    public ulong GetTotalGpuMemoryBytes()
-    {
+    public ulong GetTotalGpuMemoryBytes() {
         var memoryProperties = GetMemoryProperties();
-        ulong totalMemory = 0;
-        for (int i = 0; i < memoryProperties.memoryHeapCount; i++)
-        {
-            totalMemory += memoryProperties.memoryHeaps[i].size;
+        ulong totalDeviceLocalMemory = 0;
+        for (int i = 0; i < memoryProperties.memoryHeapCount; i++) {
+            var heap = memoryProperties.memoryHeaps[i];
+            if ((heap.flags & VkMemoryHeapFlags.DeviceLocal) != VkMemoryHeapFlags.None) {
+                totalDeviceLocalMemory += heap.size;
+            }
         }
-        return totalMemory;
+        return totalDeviceLocalMemory;
     }
 
     public override string ToString() {
@@ -154,5 +147,13 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) {
         else {
             return $"{bytes} B";
         }
+    }
+    
+    public static bool operator ==(PhysicalDevice left, PhysicalDevice right) {
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(PhysicalDevice left, PhysicalDevice right) {
+        return !(left == right);
     }
 }
