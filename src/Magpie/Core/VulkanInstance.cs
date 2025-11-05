@@ -38,9 +38,6 @@ public unsafe struct VulkanInstance : IDisposable {
     internal VkInstance Value;
 
     public readonly nint Address => Value.Handle;
-    
-    private readonly VkStringArray _enabledLayerNamesArray;
-    private readonly VkStringArray _enabledExtensionNamesArray;
 
     private List<PhysicalDevice> _devices;
     
@@ -97,9 +94,9 @@ public unsafe struct VulkanInstance : IDisposable {
         };
 
         if (inputLayers.Any()) {
-            _enabledLayerNamesArray = new VkStringArray(inputLayers.ToArray());
-            instanceCreateInfo.enabledLayerCount = _enabledLayerNamesArray.Length;
-            instanceCreateInfo.ppEnabledLayerNames = _enabledLayerNamesArray;
+            VkStringArray enabledLayerNamesArray = new(inputLayers.ToArray());
+            instanceCreateInfo.enabledLayerCount = enabledLayerNamesArray.Length;
+            instanceCreateInfo.ppEnabledLayerNames = enabledLayerNamesArray;
         }
         
         VkStringArray enabledExtensionNamesArray = new(requiredExtensions.ToArray()!);

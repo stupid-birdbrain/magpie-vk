@@ -41,7 +41,7 @@ internal sealed unsafe class VkSample {
         
         if (!_vkInstance.TryGetBestPhysicalDevice(["VK_KHR_swapchain"], out var device)) {
             throw new InvalidOperationException("No valid physical device found");
-        }
+        }   
         
         Console.WriteLine("selected physical device info:" + device.ToString());
         
@@ -77,8 +77,8 @@ internal sealed unsafe class VkSample {
         Vulkan.vkDestroySurfaceKHR(_vkInstance, _vkSurface, null);
         
         _vkInstance.Dispose();
-        _vkContext.Dispose();
-        _sdlContext.Dispose();
+        _vkContext?.Dispose();
+        _sdlContext?.Dispose();
         _windowHandle.Dispose();
     }
 }
