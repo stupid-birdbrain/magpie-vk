@@ -7,7 +7,7 @@ namespace Magpie.Graphics;
 /// <summary>
 ///     Represents a GPU. Contains info like vendor id, memory properties, avaliable extensions, etc.
 /// </summary>
-public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) {
+public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatable<PhysicalDevice> {
     internal readonly VkPhysicalDevice Value = value;
     public readonly nint Address => Value.Handle;
     
@@ -149,11 +149,9 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) {
         }
     }
     
-    public static bool operator ==(PhysicalDevice left, PhysicalDevice right) {
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(PhysicalDevice left, PhysicalDevice right) {
-        return !(left == right);
-    }
+    public static bool operator ==(PhysicalDevice left, PhysicalDevice right) => left.Equals(right);
+    public static bool operator !=(PhysicalDevice left, PhysicalDevice right) => !(left == right);
+    public bool Equals(PhysicalDevice other) => Value.Equals(other.Value);
+    public override bool Equals(object? obj) => obj is PhysicalDevice other && Equals(other);
+    public override int GetHashCode() => Value.GetHashCode();
 }
