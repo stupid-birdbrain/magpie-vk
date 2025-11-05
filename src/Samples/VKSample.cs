@@ -15,12 +15,11 @@ internal sealed unsafe class VkSample {
     private VkCtx? _vkContext;
     private SdlCtx? _sdlContext;
     private VulkanInstance _vkInstance;
-
-    private SdlWindow _windowHandle;
-    
-    private ShaderCompiler? _compiler;
-    
     private VkSurfaceKHR _vkSurface;
+    private LogicalDevice _vkDevice;
+    
+    private SdlWindow _windowHandle;
+    private ShaderCompiler? _compiler;
     
     public void Initialize(string[] args) { 
         if(SDL.Init(SDL.InitFlags.Video | SDL.InitFlags.Gamepad) == false) {
@@ -39,11 +38,19 @@ internal sealed unsafe class VkSample {
 
         _vkSurface = new((ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
         
-        if (!_vkInstance.TryGetBestPhysicalDevice(["VK_KHR_swapchain"], out var device)) {
+        PhysicalDevice bestDevice;
+        if (!_vkInstance.TryGetBestPhysicalDevice(["VK_KHR_swapchain"], out bestDevice)) {
             throw new InvalidOperationException("No valid physical device found");
         }   
         
-        Console.WriteLine("selected physical device info:" + device.ToString());
+        uint graphicsQueueFamilyIndex;
+        if (!bestDevice.TryGetGraphicsQueueFamily(out graphicsQueueFamilyIndex)) {
+            throw new Exception("Selected physical device does not have a graphics queue family.");
+        }
+
+        _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], null);
+        
+        Console.WriteLine("selected physical device info:" + bestDevice.ToString());
         
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
@@ -74,6 +81,7 @@ internal sealed unsafe class VkSample {
     }
 
     private void Dispose() {
+        _vkDevice.Dispose();
         Vulkan.vkDestroySurfaceKHR(_vkInstance, _vkSurface, null);
         
         _vkInstance.Dispose();

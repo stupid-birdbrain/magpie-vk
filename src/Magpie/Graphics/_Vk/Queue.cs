@@ -14,7 +14,7 @@ public readonly unsafe struct Queue {
         FamilyIndex = familyIndex;
         LogicalDevice = logicalDevice;
         
-        Vulkan.vkGetDeviceQueue(LogicalDevice, FamilyIndex, Index, out Value);;
+        Vulkan.vkGetDeviceQueue(LogicalDevice, FamilyIndex, Index, out Value);
     }
 
     public readonly void Submit() {
