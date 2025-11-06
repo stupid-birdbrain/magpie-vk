@@ -27,7 +27,7 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatabl
     }
     
     public readonly ReadOnlySpan<VkExtensionProperties> GetExtensions() {
-        return vkEnumerateDeviceExtensionProperties(value);
+        return vkEnumerateDeviceExtensionProperties(Value);
     }
 
     public readonly QueueFamily FindQueueFamilies(VkSurfaceKHR surface) {
