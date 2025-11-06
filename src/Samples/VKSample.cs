@@ -15,7 +15,7 @@ internal sealed unsafe class VkSample {
     private VkCtx? _vkContext;
     private SdlCtx? _sdlContext;
     private VulkanInstance _vkInstance;
-    private VkSurfaceKHR _vkSurface;
+    private Surface _vkSurface;
     private LogicalDevice _vkDevice;
     
     private SdlWindow _windowHandle;
@@ -36,16 +36,16 @@ internal sealed unsafe class VkSample {
 
         _windowHandle = new SdlWindow("magpi", 400, 400, SDL.WindowFlags.Vulkan |  SDL.WindowFlags.Transparent);
 
-        _vkSurface = new((ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
+        _vkSurface = new(_vkInstance, (ulong)_windowHandle.CreateVulkanSurface(_vkInstance));
         
         PhysicalDevice bestDevice;
         if (!_vkInstance.TryGetBestPhysicalDevice(["VK_KHR_swapchain"], out bestDevice)) {
-            throw new InvalidOperationException("No valid physical device found");
+            throw new InvalidOperationException("no valid physical device found");
         }   
         
         uint graphicsQueueFamilyIndex;
         if (!bestDevice.TryGetGraphicsQueueFamily(out graphicsQueueFamilyIndex)) {
-            throw new Exception("Selected physical device does not have a graphics queue family.");
+            throw new Exception("selected physical device does not have a graphics queue family");
         }
 
         _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], null);
@@ -82,7 +82,7 @@ internal sealed unsafe class VkSample {
 
     private void Dispose() {
         _vkDevice.Dispose();
-        Vulkan.vkDestroySurfaceKHR(_vkInstance, _vkSurface, null);
+        _vkSurface.Dispose();
         
         _vkInstance.Dispose();
         _vkContext?.Dispose();
