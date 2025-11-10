@@ -63,22 +63,15 @@ internal sealed unsafe class VkSample {
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
         
         
-        var asd = _vkSurface.GetSwapchainDescription(_vkDevice.PhysicalDevice);
-        var surfaceFormat = asd.ChooseSwapSurfaceFormat();
-        var presentMode = asd.ChooseSwapPresentMode();
+        var swapchainInfo = _vkSurface.GetSwapchainDescription(_vkDevice.PhysicalDevice);
+        var surfaceFormat = swapchainInfo.ChooseSwapSurfaceFormat();
+        var presentMode = swapchainInfo.ChooseSwapPresentMode();
         var extent = _vkSurface.ChooseSwapExtent(bestDevice);
         
-        Console.WriteLine(surfaceFormat.format);
-        Console.WriteLine(presentMode);
-        Console.WriteLine(extent);
-        
-        VkSurfaceCapabilitiesKHR capabilities = bestDevice.GetSurfaceCapabilities(_vkSurface);
-        uint imageCount = capabilities.minImageCount + 1;
-        if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
-            imageCount = capabilities.maxImageCount;
+        uint imageCount = swapchainInfo.Capabilities.minImageCount + 1;
+        if (swapchainInfo.Capabilities.maxImageCount > 0 && imageCount > swapchainInfo.Capabilities.maxImageCount) {
+            imageCount = swapchainInfo.Capabilities.maxImageCount;
         }
-
-        var swapchainInfo = _vkSurface.GetSwapchainDescription(_vkDevice.PhysicalDevice);
 
         VkSwapchainCreateInfoKHR swapchainCreateInfo = new() {
             sType = VkStructureType.SwapchainCreateInfoKHR,
@@ -95,12 +88,13 @@ internal sealed unsafe class VkSample {
             queueFamilyIndexCount = 0,
             pQueueFamilyIndices = null,
 
-            preTransform = capabilities.currentTransform,
+            preTransform = swapchainInfo.Capabilities.currentTransform,
             compositeAlpha = VkCompositeAlphaFlagsKHR.Opaque,
             presentMode = presentMode,
             clipped = true,
             oldSwapchain = VkSwapchainKHR.Null,
         };
+        
         var queueFamilies = bestDevice.FindQueueFamilies(_vkSurface);
         uint graphicsQueueFamily = queueFamilies.GraphicsFamily!.Value;
         uint presentQueueFamily = queueFamilies.PresentFamily!.Value;
@@ -114,20 +108,25 @@ internal sealed unsafe class VkSample {
         
         var swapchainResult = Vulkan.vkCreateSwapchainKHR(_vkDevice, &swapchainCreateInfo, null, out _swapchain);
         if (swapchainResult != VkResult.Success) {
-            throw new Exception($"Failed to create swapchain! {swapchainResult}");
+            throw new Exception($"failed to create swapchain! {swapchainResult}");
         }
         
-        Console.WriteLine($"Swapchain created: {_swapchain}");
+        Console.WriteLine($"swapchain created!: {_swapchain}");
 
         uint swapchainImageCount;
         Vulkan.vkGetSwapchainImagesKHR(_vkDevice, _swapchain, &swapchainImageCount, null);
         VkImage* swapchainImages = stackalloc VkImage[(int)swapchainImageCount];
         Vulkan.vkGetSwapchainImagesKHR(_vkDevice, _swapchain, &swapchainImageCount, swapchainImages);
 
-        Console.WriteLine($"Swapchain images retrieved. Count: {swapchainImageCount}");
+        Console.WriteLine($"swapchain images retrieved, amt: {swapchainImageCount}");
         for (int i = 0; i < swapchainImageCount; i++) {
-            Console.WriteLine($"  Image {i}: {swapchainImages[i]}");
+            Console.WriteLine($"img {i}: {swapchainImages[i]}");
         }
+        
+        Console.WriteLine(surfaceFormat.format);
+        Console.WriteLine(surfaceFormat.colorSpace);
+        Console.WriteLine(presentMode);
+        Console.WriteLine(extent);
         
         while (Quit == false) {
             Time.Start();
