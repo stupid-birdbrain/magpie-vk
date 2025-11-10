@@ -1,3 +1,4 @@
+using Magpie.Core;
 using System.Text;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
@@ -29,6 +30,22 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatabl
     public readonly ReadOnlySpan<VkExtensionProperties> GetExtensions() {
         return vkEnumerateDeviceExtensionProperties(Value);
     }
+    
+    public VkSurfaceCapabilitiesKHR GetSurfaceCapabilities(Surface surface) {
+        VkSurfaceCapabilitiesKHR capabilities = default;
+        VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(value, surface.Value, &capabilities);
+        if (result != VkResult.Success) {
+            throw new Exception($"failed to get device surface capabilities: {result}");
+        }
+
+        return capabilities;
+    }
+
+    public readonly ReadOnlySpan<VkSurfaceFormatKHR> GetSurfaceFormats(Surface surface) 
+        => vkGetPhysicalDeviceSurfaceFormatsKHR(value, surface.Value);
+
+    public readonly ReadOnlySpan<VkPresentModeKHR> GetSurfacePresentModes(Surface surface) 
+        => vkGetPhysicalDeviceSurfacePresentModesKHR(value, surface.Value);
 
     public readonly QueueFamily FindQueueFamilies(VkSurfaceKHR surface) {
         if (Value.IsNull) {

@@ -1,15 +1,16 @@
+using Magpie.Core;
 using Vortice.Vulkan;
 
 namespace Magpie.Graphics;
 
 public readonly unsafe struct Queue {
-    public readonly VkDevice LogicalDevice;
+    public readonly LogicalDevice LogicalDevice;
     internal readonly VkQueue Value;
 
     public readonly uint Index;
     public readonly uint FamilyIndex;
 
-    public Queue(VkDevice logicalDevice, uint index, uint familyIndex) {
+    public Queue(LogicalDevice logicalDevice, uint index, uint familyIndex) {
         Index = index;
         FamilyIndex = familyIndex;
         LogicalDevice = logicalDevice;

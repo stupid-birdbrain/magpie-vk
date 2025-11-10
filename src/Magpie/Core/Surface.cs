@@ -1,19 +1,51 @@
-﻿using Vortice.Vulkan;
+﻿using Magpie.Graphics;
+using Vortice.Vulkan;
 
 namespace Magpie.Core;
 
 public unsafe struct Surface : IDisposable {
     internal VkSurfaceKHR Value;
-    public readonly ulong Address => Value.Handle;
+    public readonly nint Address => (IntPtr)Value.Handle;
 
     internal readonly VulkanInstance Instance;
 
-    public Surface(VulkanInstance instance, VkSurfaceKHR origSurface) {
+    public Surface(VulkanInstance instance, nint origSurface) {
         Instance = instance;
-        Value = origSurface;
+        Value = new((ulong)origSurface);
+    }
+    
+    
+    
+    public VkExtent2D ChooseSwapExtent(PhysicalDevice device) {
+        uint width;
+        uint height;
+        
+        var swapchainInfo = GetSwapchainDescription(device);
+        VkSurfaceCapabilitiesKHR capabilities = swapchainInfo.Capabilities;
+        if (capabilities.currentExtent.width == capabilities.minImageExtent.height) {
+            width = default;
+            height = default;
+        }
+
+        width = capabilities.currentExtent.width;
+        height = capabilities.currentExtent.height;
+        return new (width, height);
+    }
+
+    public SwapchainCapabilitiesDescription GetSwapchainDescription(PhysicalDevice physicalDevice) {
+        var capabilities = physicalDevice.GetSurfaceCapabilities(this);
+        var formats = physicalDevice.GetSurfaceFormats(this);
+        var presentModes = physicalDevice.GetSurfacePresentModes(this);
+        
+        return new(capabilities, formats, presentModes);
     }
 
     public void Dispose() {
-        Vulkan.vkDestroySurfaceKHR(Instance, Value, null);
+        if(Value != VkSurfaceKHR.Null) {
+            Vulkan.vkDestroySurfaceKHR(Instance, Value, null);
+            Value = VkSurfaceKHR.Null;
+        }
     }
+    
+    public static implicit operator VkSurfaceKHR(Surface surf) => surf.Value;
 }
