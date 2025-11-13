@@ -5,8 +5,8 @@ using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Graphics;
 
-public sealed class GraphicsDevice {
-    public readonly VulkanInstance Instance;
+public sealed class GraphicsDevice : IDisposable {
+    public VulkanInstance Instance;
     private Swapchain _mainSwapchain;
     private Surface _surface;
 
@@ -30,5 +30,12 @@ public sealed class GraphicsDevice {
         var extent = _surface.ChooseSwapExtent(_physicalDevice);
         _mainSwapchain = new(_logicalDevice, extent.width, extent.height, _surface);
         Console.WriteLine($"main backbuffer swapchain created!:");
+    }
+
+    public void Dispose() {
+        vkDeviceWaitIdle(_logicalDevice);
+        _mainSwapchain.Dispose();
+        _surface.Dispose();
+        _logicalDevice.Dispose();
     }
 }

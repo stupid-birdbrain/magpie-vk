@@ -57,60 +57,13 @@ internal sealed unsafe class VkSample {
         _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], requiredDeviceExtensions);
         _presentQueue = _vkDevice.GetQueue(graphicsQueueFamilyIndex, 0);
         
-        Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
-        
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
         
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
         var reflectedData = _compiler.ReflectShader(shaderBytes.ToArray(), Backend.GLSL);
         
-        // var swapchainInfo = _vkSurface.GetSwapchainDescription(_vkDevice.PhysicalDevice);
-        // var surfaceFormat = swapchainInfo.ChooseSwapSurfaceFormat();
-        // var presentMode = swapchainInfo.ChooseSwapPresentMode();
-        // var extent = _vkSurface.ChooseSwapExtent(bestDevice);
-        //
-        // uint imageCount = swapchainInfo.Capabilities.minImageCount + 1;
-        // if (swapchainInfo.Capabilities.maxImageCount > 0 && imageCount > swapchainInfo.Capabilities.maxImageCount) {
-        //     imageCount = swapchainInfo.Capabilities.maxImageCount;
-        // }
-        //
-        //
-        // uint swapchainImageCount;
-        // Vulkan.vkGetSwapchainImagesKHR(_vkDevice, _swapchain, &swapchainImageCount, null);
-        // VkImage* swapchainImages = stackalloc VkImage[(int)swapchainImageCount];
-        // Vulkan.vkGetSwapchainImagesKHR(_vkDevice, _swapchain, &swapchainImageCount, swapchainImages);
-        //
-        // Console.WriteLine($"swapchain images retrieved, amt: {swapchainImageCount}");
-        // for (int i = 0; i < swapchainImageCount; i++) {
-        //     Console.WriteLine($"img {i}: {swapchainImages[i]}");
-        // }
-        //
-        // // Console.WriteLine(surfaceFormat.format);
-        // // Console.WriteLine(surfaceFormat.colorSpace);
-        // // Console.WriteLine(presentMode);
-        // // Console.WriteLine(extent);
-        //
-        // _imageViews = new VkImageView[swapchainImageCount];
-        //
-        // for(int i = 0; i < swapchainImageCount; i++) {
-        //     VkImageViewCreateInfo createInfo = new()
-        //     {
-        //         sType = VkStructureType.ImageViewCreateInfo,
-        //         image = swapchainImages[i],
-        //         viewType = VkImageViewType.Image2D,
-        //         format = surfaceFormat.format,
-        //         
-        //         subresourceRange = new VkImageSubresourceRange(VkImageAspectFlags.Color, baseMipLevel: 0, levelCount: 1, baseArrayLayer: 0, layerCount: 1) 
-        //     };
-        //     
-        //     fixed (VkImageView* pImageView = &_imageViews[i]) {
-        //         var result = Vulkan.vkCreateImageView(_vkDevice, &createInfo, null, pImageView);
-        //         if (result != VkResult.Success) {
-        //             throw new Exception($"failed to create image view {i}! result: {result}");
-        //         }
-        //     }
-        // }
-        //
+        Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
+        
         while (!Quit) {
             Time.Start();
             while (SDL.PollEvent(out var @event)) {
@@ -136,9 +89,7 @@ internal sealed unsafe class VkSample {
     private void Dispose() {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
         
-        _swapchain.Dispose();
-        _vkDevice.Dispose();
-        _vkSurface.Dispose();
+        Graphics!.Dispose();
         
         _vkInstance.Dispose();
         _vkContext?.Dispose();
