@@ -22,8 +22,8 @@ public readonly unsafe struct Queue {
         
     }
     
-    public readonly VkResult TryPresent(Semaphore semaphore, VkSwapchainKHR swapchain, uint imageIndex) 
-        => Vulkan.vkQueuePresentKHR(Value, semaphore.Value, swapchain, imageIndex);
+    public readonly VkResult TryPresent(Semaphore semaphore, Swapchain swapchain, uint imageIndex) 
+        => Vulkan.vkQueuePresentKHR(Value, semaphore.Value, swapchain.Value, imageIndex);
 
     public readonly void Wait() {
         var result = Vulkan.vkQueueWaitIdle(Value);

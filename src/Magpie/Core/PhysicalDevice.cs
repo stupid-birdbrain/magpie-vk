@@ -33,7 +33,7 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatabl
     
     public VkSurfaceCapabilitiesKHR GetSurfaceCapabilities(Surface surface) {
         VkSurfaceCapabilitiesKHR capabilities = default;
-        VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(value, surface.Value, &capabilities);
+        VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Value, surface.Value, &capabilities);
         if (result != VkResult.Success) {
             throw new Exception($"failed to get device surface capabilities: {result}");
         }
@@ -42,10 +42,10 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatabl
     }
 
     public readonly ReadOnlySpan<VkSurfaceFormatKHR> GetSurfaceFormats(Surface surface) 
-        => vkGetPhysicalDeviceSurfaceFormatsKHR(value, surface.Value);
+        => vkGetPhysicalDeviceSurfaceFormatsKHR(Value, surface.Value);
 
     public readonly ReadOnlySpan<VkPresentModeKHR> GetSurfacePresentModes(Surface surface) 
-        => vkGetPhysicalDeviceSurfacePresentModesKHR(value, surface.Value);
+        => vkGetPhysicalDeviceSurfacePresentModesKHR(Value, surface.Value);
 
     public readonly QueueFamily FindQueueFamilies(VkSurfaceKHR surface) {
         if (Value.IsNull) {
@@ -130,19 +130,6 @@ public readonly unsafe struct PhysicalDevice(VkPhysicalDevice value) : IEquatabl
         sb.AppendLine($"total gpu Memory: {FormatBytes(totalGpuMemory)}");
 
         sb.AppendLine($"vkapi version: {apiVersion.Major}.{apiVersion.Minor}.{apiVersion.Patch}");
-#if DEBUG
-        sb.AppendLine("memory heaps:");
-        for (int i = 0; i < mem.memoryHeapCount; i++) {
-            var heap = mem.memoryHeaps[i];
-            sb.AppendLine($"heap {i}: size = {FormatBytes(heap.size)}, flags = {heap.flags}");
-        }
-
-        sb.AppendLine("Memory Types:");
-        for (int i = 0; i < mem.memoryTypeCount; i++) {
-            var type = mem.memoryTypes[i];
-            sb.AppendLine($"type {i}: heap idx = {type.heapIndex}, prop flags = {type.propertyFlags}");
-        }
-#endif
         
         return sb.ToString();
     }

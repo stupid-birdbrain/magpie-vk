@@ -9,7 +9,7 @@ public unsafe struct Fence : IDisposable {
     public readonly VkDevice LogicalDevice;
 
     public Fence(VkDevice logicalDevice, VkFenceCreateFlags createFlags = VkFenceCreateFlags.Signaled) {
-        this.LogicalDevice = logicalDevice;
+        LogicalDevice = logicalDevice;
         VkFenceCreateInfo fenceInfo = new() {
             sType = VkStructureType.FenceCreateInfo,
             flags = createFlags
@@ -22,12 +22,12 @@ public unsafe struct Fence : IDisposable {
 
     public readonly void Wait(ulong timeout = ulong.MaxValue) {
         fixed(VkFence* ptr = &Value)
-        Vulkan.vkWaitForFences(LogicalDevice, 1, ptr, true, timeout);
+            Vulkan.vkWaitForFences(LogicalDevice, 1, ptr, true, timeout);
     }
     
     public readonly void Reset() {
         fixed(VkFence* ptr = &Value)
-        Vulkan.vkResetFences(LogicalDevice, 1, ptr);
+            Vulkan.vkResetFences(LogicalDevice, 1, ptr);
     }
     
     public void Dispose() {

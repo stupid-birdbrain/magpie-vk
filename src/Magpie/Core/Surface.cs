@@ -14,8 +14,6 @@ public unsafe struct Surface : IDisposable {
         Value = new((ulong)origSurface);
     }
     
-    
-    
     public VkExtent2D ChooseSwapExtent(PhysicalDevice device) {
         uint width;
         uint height;
