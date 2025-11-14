@@ -9,9 +9,13 @@ public unsafe struct Swapchain :  IDisposable {
     public VkFormat Format;
     
     internal VkSwapchainKHR Value;
+
+    internal VkImage[] Images;
+    internal VkImageView[] ImageViews;
     
-    [Obsolete]
-    public Swapchain() { throw new NotSupportedException("default constructor is not supported on swapchains!"); }
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    [Obsolete("default constructor is not supported on swapchains", error: true)] public Swapchain() { }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 
     public Swapchain(LogicalDevice device, uint width, uint height, Surface surface) {
         Device = device;
@@ -31,7 +35,7 @@ public unsafe struct Swapchain :  IDisposable {
         
         VkSwapchainCreateInfoKHR swapchainCreateInfo = new() {
             sType = VkStructureType.SwapchainCreateInfoKHR,
-            surface = surface,
+            surface = surface.Value,
 
             minImageCount = imageCount,
             imageFormat = format.format,
@@ -41,7 +45,7 @@ public unsafe struct Swapchain :  IDisposable {
             imageUsage = VkImageUsageFlags.ColorAttachment
         };
         
-        var queueFamilies = device.PhysicalDevice.FindQueueFamilies(surface);
+        var queueFamilies = device.PhysicalDevice.FindQueueFamilies(surface.Value);
         uint graphicsQueueFamily = queueFamilies.GraphicsFamily!.Value;
         uint presentQueueFamily = queueFamilies.PresentFamily!.Value;
 
@@ -62,10 +66,35 @@ public unsafe struct Swapchain :  IDisposable {
             throw new Exception($"failed to create swapchain! {swapchainResult}");
         }
         
-        Console.WriteLine($"swapchain created!: {Width}x{Height}, {Format}");
+        Images = Vulkan.vkGetSwapchainImagesKHR(device, Value).ToArray();
+        ImageViews = new VkImageView[Images.Length];
+        
+        for (int i = 0; i < Images.Length; i++) {
+            VkImageViewCreateInfo viewInfo = new() {
+                sType = VkStructureType.ImageViewCreateInfo,
+                image = Images[i],
+                viewType = VkImageViewType.Image2D,
+                format = Format,
+                subresourceRange = new VkImageSubresourceRange
+                {
+                    aspectMask = VkImageAspectFlags.Color,
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
+            };
+            Vulkan.vkCreateImageView(device, &viewInfo, null, out ImageViews[i]);
+            Console.WriteLine($"imageview info: {viewInfo.format}, {viewInfo.viewType}");
+        }
+        
+        Console.WriteLine($"swapchain created!: {Width}x{Height}, {Format}, images: {Images.Length}");
     }
 
     public void Dispose() {
+        for (int i = 0; i < ImageViews.Length; i++) {
+            Vulkan.vkDestroyImageView(Device, ImageViews[i], null);
+        }
         Vulkan.vkDestroySwapchainKHR(Device, Value, null);
     }
 }
