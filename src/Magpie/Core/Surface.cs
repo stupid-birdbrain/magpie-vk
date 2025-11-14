@@ -29,6 +29,12 @@ public unsafe struct Surface : IDisposable {
         height = capabilities.currentExtent.height;
         return new (width, height);
     }
+    
+    public (uint minWidth, uint maxWidth, uint minHeight, uint maxHeight) GetSizeRange(PhysicalDevice device) {
+        var swapchainInfo = GetSwapchainDescription(device);
+        VkSurfaceCapabilitiesKHR capabilities = swapchainInfo.Capabilities;
+        return (capabilities.minImageExtent.width, capabilities.maxImageExtent.width, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+    }
 
     public SwapchainCapabilitiesDescription GetSwapchainDescription(PhysicalDevice physicalDevice) {
         var capabilities = physicalDevice.GetSurfaceCapabilities(this);

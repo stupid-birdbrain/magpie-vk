@@ -104,14 +104,38 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     }
     
     public void Clear(VkClearValue clearColor) {
+        var currentExtent = _surface.ChooseSwapExtent(_physicalDevice);
+
+        if (currentExtent.width == 0 || currentExtent.height == 0) {
+            return;
+        }
+
+        if (currentExtent.width != _mainSwapchain.Width || currentExtent.height != _mainSwapchain.Height) {
+            RecreateSwapchain();
+            return;
+        }
+
         if (_isFrameStarted) {
             throw new InvalidOperationException("cannot call Clear twice in a frame!");
         }
 
-        var result = AcquireNextImage();
+        _inFlightFence.Wait();
+
+        VkResult result = vkAcquireNextImageKHR(
+            _logicalDevice,
+            _mainSwapchain.Value,
+            ulong.MaxValue,
+            _imageAvailableSemaphore,
+            VkFence.Null,
+            out _imageIndex
+        );
+
         if (result == VkResult.ErrorOutOfDateKHR) {
             RecreateSwapchain();
             return;
+        }
+        else if (result != VkResult.Success && result != VkResult.SuboptimalKHR) {
+            throw new Exception($"failed to acquire swapchain image!: {result}");
         }
 
         _isFrameStarted = true;
@@ -119,11 +143,12 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _mainCommandBuffer.Reset();
         _mainCommandBuffer.Begin();
 
-        VkRenderPassBeginInfo renderPassInfo = new() {
+        VkRenderPassBeginInfo renderPassInfo = new()
+        {
             sType = VkStructureType.RenderPassBeginInfo,
             renderPass = _renderPass,
             framebuffer = _framebuffers[_imageIndex],
-            renderArea = new (0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
+            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
             clearValueCount = 1,
             pClearValues = &clearColor
         };
@@ -136,19 +161,6 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     }
     
     public void Clear(Color color) => Clear(color.ToVkClearValue());
-    
-    private VkResult AcquireNextImage()
-    {
-        _inFlightFence.Wait();
-        return vkAcquireNextImageKHR(
-            _logicalDevice,
-            _mainSwapchain.Value,
-            ulong.MaxValue,
-            _imageAvailableSemaphore,
-            VkFence.Null,
-            out _imageIndex
-        );
-    }
     
     public void Present() {
         if (!_isFrameStarted) {
@@ -203,6 +215,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     private void CreateSwapchain() {
         var extent = _surface.ChooseSwapExtent(_physicalDevice);
+        
         _mainSwapchain = new(_logicalDevice, extent.width, extent.height, _surface);
         Console.WriteLine($"main backbuffer swapchain created!");
     }
