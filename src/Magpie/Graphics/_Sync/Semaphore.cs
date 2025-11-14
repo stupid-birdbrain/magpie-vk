@@ -2,7 +2,7 @@ using Vortice.Vulkan;
 
 namespace Magpie.Graphics;
 
-public unsafe readonly struct Semaphore : IDisposable {
+public readonly unsafe struct Semaphore : IDisposable {
     internal readonly VkSemaphore Value;
     public readonly bool IsDisposed => Value.IsNull;
     

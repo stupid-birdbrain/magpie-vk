@@ -1,9 +1,11 @@
-﻿using Magpie.Core;
+﻿using System.Diagnostics;
+using Magpie.Core;
 using Magpie.Graphics;
 using Magpie.Utilities;
 using SDL3;
 using ShaderCompilation;
 using StainedGlass;
+using Standard;
 using Vortice.SpirvCross;
 using Vortice.Vulkan;
 
@@ -18,12 +20,9 @@ internal sealed unsafe class VkSample {
     private VulkanInstance _vkInstance;
     private Surface _vkSurface;
     private LogicalDevice _vkDevice;
-    private Swapchain _swapchain;
     
     private SdlWindow _windowHandle;
     private ShaderCompiler? _compiler;
-
-    private Queue _presentQueue;
     
     public void Initialize(string[] args) { 
         _compiler = new ShaderCompiler();
@@ -32,7 +31,7 @@ internal sealed unsafe class VkSample {
         _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events);
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
         
-        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Transparent | SDL.WindowFlags.Resizable);
+        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
         _vkSurface = new(_vkInstance, _windowHandle.CreateVulkanSurface(_vkInstance));
         
         string[] requiredDeviceExtensions = [
@@ -55,8 +54,6 @@ internal sealed unsafe class VkSample {
         }
 
         _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], requiredDeviceExtensions);
-        _presentQueue = _vkDevice.GetQueue(graphicsQueueFamilyIndex, 0);
-        
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
         
         var shaderBytes = _compiler.CompileShader("resources/shader.frag", ShaderKind.Fragment); 
@@ -80,10 +77,20 @@ internal sealed unsafe class VkSample {
         
             Time.Update();
             
+            Draw();
+            
             Time.Stop();
         }
         
         Dispose();
+    }
+
+    void Draw() {
+        Debug.Assert(Graphics != null);
+        
+        Graphics.Clear(Colors.MediumSlateBlue);
+
+        Graphics.Present();
     }
 
     private void Dispose() {
