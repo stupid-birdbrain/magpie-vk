@@ -227,6 +227,8 @@ public unsafe struct VulkanInstance : IDisposable {
         return device != default;
 
         static unsafe uint getScore(PhysicalDevice physicalDevice, ReadOnlySpan<string> requiredExtensions) {
+            var features = physicalDevice.GetFeatures();
+            
             if (!physicalDevice.TryGetGraphicsQueueFamily(out _)) {
                 return 0;
             }
@@ -249,6 +251,21 @@ public unsafe struct VulkanInstance : IDisposable {
                 }
             }
             else if (requiredExtensions.Length > 0) {
+                return 0;
+            }
+            
+            VkPhysicalDeviceVulkan13Features queryVulkan13Features = new();
+            VkPhysicalDeviceFeatures2 queryDeviceFeatures2 = new();
+            queryDeviceFeatures2.pNext = &queryVulkan13Features;
+            vkGetPhysicalDeviceFeatures2(physicalDevice.Value, &queryDeviceFeatures2);
+
+            if (!queryVulkan13Features.dynamicRendering) {
+                Debug.WriteLine("Dynamic Rendering feature is missing");
+                return 0;
+            }
+
+            if (!queryVulkan13Features.synchronization2) {
+                Debug.WriteLine("Synchronization2 feature is missing");
                 return 0;
             }
 
