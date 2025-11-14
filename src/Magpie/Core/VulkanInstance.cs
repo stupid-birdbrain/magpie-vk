@@ -205,6 +205,8 @@ public unsafe struct VulkanInstance : IDisposable {
         Console.WriteLine(messageTypes == VkDebugUtilsMessageTypeFlagsEXT.Validation
             ? $"Validation: {messageSeverity} | {message}"
             : $"{messageSeverity} - {message}");
+        
+        Console.ResetColor();
 
         return VK_FALSE;
     }
