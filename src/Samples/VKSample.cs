@@ -138,8 +138,7 @@ internal sealed unsafe class VkSample {
         Vulkan.vkAllocateMemory(_vkDevice, &memAlloc, null, out _vertexBufferMemory).CheckResult();
         Vulkan.vkBindBufferMemory(_vkDevice, _vertexBuffer, _vertexBufferMemory, 0).CheckResult();
         
-        using( var fence = new Fence(_vkDevice, VkFenceCreateFlags.None))
-        {
+        using(var fence = Graphics.RequestFence(VkFenceCreateFlags.None)) {
             var copyCmd = Graphics.AllocateCommandBuffer();
 
             copyCmd.Begin();
@@ -192,8 +191,7 @@ internal sealed unsafe class VkSample {
         
         Graphics.Clear(Colors.Transparent);
         
-        if (!Graphics.IsFrameStarted)
-        {
+        if (!Graphics.IsFrameStarted) {
             return;
         }
 

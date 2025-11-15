@@ -22,6 +22,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private readonly Semaphore _imageAvailableSemaphore;
     private readonly Semaphore _renderFinishedSemaphore;
     private Fence _inFlightFence;
+    private FencePool _fences;
 
     private uint _imageIndex;
     private bool _isFrameStarted;
@@ -49,7 +50,10 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _imageAvailableSemaphore = new(_logicalDevice);
         _renderFinishedSemaphore = new(_logicalDevice);
         _inFlightFence = new(_logicalDevice);
+        _fences = new FencePool(_logicalDevice);
     }
+    
+    public FenceLease RequestFence(VkFenceCreateFlags flags) => _fences.Rent(flags);
     
     public uint GetMemoryTypeIndex(uint typeBits, VkMemoryPropertyFlags properties) {
         vkGetPhysicalDeviceMemoryProperties(_physicalDevice.Value, out VkPhysicalDeviceMemoryProperties deviceMemoryProperties);
@@ -270,6 +274,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     {
         vkDeviceWaitIdle(_logicalDevice);
         
+        _fences.Dispose();
         _inFlightFence.Dispose();
         _renderFinishedSemaphore.Dispose();
         _imageAvailableSemaphore.Dispose();
