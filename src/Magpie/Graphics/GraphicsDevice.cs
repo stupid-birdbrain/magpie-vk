@@ -2,7 +2,6 @@ using Magpie.Core;
 using Magpie.Utilities;
 using Standard;
 using Vortice.Vulkan;
-
 using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Graphics;
@@ -11,25 +10,25 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     public VulkanInstance Instance;
     private Swapchain _mainSwapchain;
     private Surface _surface;
-    private CommandPool _graphicsCmdPool;
+    private readonly CommandPool _graphicsCmdPool;
     private CommandBuffer _mainCommandBuffer;
 
-    private Queue _presentQueue;
-    private Queue _graphicsQueue;
-    
-    private PhysicalDevice _physicalDevice;
-    private LogicalDevice _logicalDevice;
-    
+    private readonly Queue _presentQueue;
+    private readonly Queue _graphicsQueue;
+
+    private readonly PhysicalDevice _physicalDevice;
+    private readonly LogicalDevice _logicalDevice;
+
     private readonly Semaphore _imageAvailableSemaphore;
     private readonly Semaphore _renderFinishedSemaphore;
     private Fence _inFlightFence;
-    
-    private VkRenderPass _renderPass;
-    private VkFramebuffer[] _framebuffers;
 
     private uint _imageIndex;
     private bool _isFrameStarted;
     
+    public bool IsFrameStarted => _isFrameStarted;
+    public Swapchain MainSwapchain => _mainSwapchain;
+
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
         Instance = instance;
         _surface = surface;
@@ -39,15 +38,9 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         var queueFamilies = _physicalDevice.FindQueueFamilies(_surface);
         _graphicsQueue = _logicalDevice.GetQueue(queueFamilies.GraphicsFamily!.Value, 0);
         _presentQueue = _logicalDevice.GetQueue(queueFamilies.PresentFamily!.Value, 0);
-        Console.WriteLine($"{queueFamilies.GraphicsFamily}, {queueFamilies.PresentFamily}");
         
-        var extent = _surface.ChooseSwapExtent(_physicalDevice);
-        _mainSwapchain = new(_logicalDevice, extent.width, extent.height, _surface);
-        Console.WriteLine($"main backbuffer swapchain created!");
+        CreateSwapchain();
         
-        CreateRenderPass();
-        CreateFramebuffers();
-
         _graphicsCmdPool = new(_logicalDevice, _graphicsQueue);
         Console.WriteLine($"main cmd pool created!");
 
@@ -58,49 +51,19 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _inFlightFence = new(_logicalDevice);
     }
     
-    private void CreateRenderPass() {
-        VkAttachmentDescription colorAttachment = new() {
-            format = _mainSwapchain.Format,
-            samples = VkSampleCountFlags.Count1,
-            loadOp = VkAttachmentLoadOp.Clear,
-            storeOp = VkAttachmentStoreOp.Store,
-            stencilLoadOp = VkAttachmentLoadOp.DontCare,
-            stencilStoreOp = VkAttachmentStoreOp.DontCare,
-            initialLayout = VkImageLayout.Undefined,
-            finalLayout = VkImageLayout.PresentSrcKHR
-        };
+    public uint GetMemoryTypeIndex(uint typeBits, VkMemoryPropertyFlags properties) {
+        vkGetPhysicalDeviceMemoryProperties(_physicalDevice.Value, out VkPhysicalDeviceMemoryProperties deviceMemoryProperties);
 
-        VkAttachmentReference colorAttachmentRef = new() {
-            attachment = 0,
-            layout = VkImageLayout.ColorAttachmentOptimal
-        };
+        for (int i = 0; i < deviceMemoryProperties.memoryTypeCount; i++) {
+            if ((typeBits & 1) == 1) {
+                if ((deviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return (uint)i;
+                }
+            }
+            typeBits >>= 1;
+        }
 
-        VkSubpassDescription subpass = new() {
-            pipelineBindPoint = VkPipelineBindPoint.Graphics,
-            colorAttachmentCount = 1,
-            pColorAttachments = &colorAttachmentRef
-        };
-
-        VkSubpassDependency dependency = new() {
-            srcSubpass = VK_SUBPASS_EXTERNAL,
-            dstSubpass = 0,
-            srcStageMask = VkPipelineStageFlags.ColorAttachmentOutput,
-            srcAccessMask = 0,
-            dstStageMask = VkPipelineStageFlags.ColorAttachmentOutput,
-            dstAccessMask = VkAccessFlags.ColorAttachmentWrite
-        };
-
-        VkRenderPassCreateInfo renderPassInfo = new() {
-            sType = VkStructureType.RenderPassCreateInfo,
-            attachmentCount = 1,
-            pAttachments = &colorAttachment,
-            subpassCount = 1,
-            pSubpasses = &subpass,
-            dependencyCount = 1,
-            pDependencies = &dependency
-        };
-
-        vkCreateRenderPass(_logicalDevice, &renderPassInfo, null, out _renderPass);
+        throw new Exception("Could not find a suitable memory type!");
     }
     
     public void Clear(VkClearValue clearColor) {
@@ -121,14 +84,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
 
         _inFlightFence.Wait();
 
-        VkResult result = vkAcquireNextImageKHR(
-            _logicalDevice,
-            _mainSwapchain.Value,
-            ulong.MaxValue,
-            _imageAvailableSemaphore,
-            VkFence.Null,
-            out _imageIndex
-        );
+        var result = vkAcquireNextImageKHR(_logicalDevice, _mainSwapchain.Value, ulong.MaxValue, _imageAvailableSemaphore, VkFence.Null, out _imageIndex);
 
         if (result == VkResult.ErrorOutOfDateKHR) {
             RecreateSwapchain();
@@ -143,31 +99,60 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _mainCommandBuffer.Reset();
         _mainCommandBuffer.Begin();
 
-        VkRenderPassBeginInfo renderPassInfo = new()
+        TransitionImageLayout(_mainCommandBuffer, _mainSwapchain.Images[_imageIndex], VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
+
+        VkRenderingAttachmentInfo colorAttachment = new()
         {
-            sType = VkStructureType.RenderPassBeginInfo,
-            renderPass = _renderPass,
-            framebuffer = _framebuffers[_imageIndex],
-            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
-            clearValueCount = 1,
-            pClearValues = &clearColor
+            sType = VkStructureType.RenderingAttachmentInfo,
+            imageView = _mainSwapchain.ImageViews[_imageIndex],
+            imageLayout = VkImageLayout.ColorAttachmentOptimal,
+            loadOp = VkAttachmentLoadOp.Clear,
+            storeOp = VkAttachmentStoreOp.Store,
+            clearValue = clearColor
         };
 
-        vkCmdBeginRenderPass(
-            _mainCommandBuffer.Value,
-            &renderPassInfo,
-            VkSubpassContents.Inline
-        );
+        VkRenderingInfo renderingInfo = new() {
+            sType = VkStructureType.RenderingInfo,
+            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
+            layerCount = 1,
+            colorAttachmentCount = 1,
+            pColorAttachments = &colorAttachment
+        };
+
+        vkCmdBeginRendering(_mainCommandBuffer, &renderingInfo);
     }
     
     public void Clear(Color color) => Clear(color.ToVkClearValue());
+    
+    public CommandBuffer AllocateCommandBuffer() {
+        return _graphicsCmdPool.CreateCommandBuffer();
+    }
+    
+    public CommandBuffer GetCurrentCommandBuffer() {
+        if (!_isFrameStarted) {
+            throw new InvalidOperationException("Cannot get command buffer before Clear() is called.");
+        }
+        return _mainCommandBuffer;
+    }
+
+    public void Submit(CommandBuffer cmd, Fence fence) {
+        _graphicsQueue.Submit(cmd, fence);
+    }
     
     public void Present() {
         if (!_isFrameStarted) {
             return;
         }
 
-        vkCmdEndRenderPass(_mainCommandBuffer.Value);
+        vkCmdEndRendering(_mainCommandBuffer);
+
+        TransitionImageLayout(
+            _mainCommandBuffer,
+            _mainSwapchain.Images[_imageIndex],
+            VkImageLayout.ColorAttachmentOptimal,
+            VkImageLayout.PresentSrcKHR
+        );
+
         _mainCommandBuffer.End();
 
         _graphicsQueue.Submit(
@@ -193,57 +178,98 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _isFrameStarted = false;
     }
     
-    private void CreateFramebuffers() {
-        var imageViews = _mainSwapchain.ImageViews;
-        _framebuffers = new VkFramebuffer[imageViews.Length];
-
-        for (int i = 0; i < imageViews.Length; i++) {
-            var attachment = imageViews[i];
-            VkFramebufferCreateInfo framebufferInfo = new() {
-                sType = VkStructureType.FramebufferCreateInfo,
-                renderPass = _renderPass,
-                attachmentCount = 1,
-                pAttachments = &attachment,
-                width = _mainSwapchain.Width,
-                height = _mainSwapchain.Height,
-                layers = 1
-            };
-
-            vkCreateFramebuffer(_logicalDevice, &framebufferInfo, null, out _framebuffers[i]);
-        }
-    }
-    
     private void CreateSwapchain() {
         var extent = _surface.ChooseSwapExtent(_physicalDevice);
+
+        while (extent.width == 0 || extent.height == 0) {
+            extent = _surface.ChooseSwapExtent(_physicalDevice);
+        }
         
         _mainSwapchain = new(_logicalDevice, extent.width, extent.height, _surface);
-        Console.WriteLine($"main backbuffer swapchain created!");
+        Console.WriteLine($"main backbuffer created: {extent.width}x{extent.height}");
     }
     
     public void RecreateSwapchain() {
         vkDeviceWaitIdle(_logicalDevice);
-
         CleanupSwapchain();
         CreateSwapchain();
-        CreateFramebuffers();
     }
 
     private void CleanupSwapchain() {
-        foreach (var framebuffer in _framebuffers) {
-            vkDestroyFramebuffer(_logicalDevice, framebuffer, null);
-        }
-
         _mainSwapchain.Dispose();
     }
 
-    public void Dispose() {
+    private void TransitionImageLayout(
+        CommandBuffer cmd,
+        VkImage image,
+        VkImageLayout oldLayout,
+        VkImageLayout newLayout
+    )
+    {
+        VkImageMemoryBarrier barrier = new()
+        {
+            sType = VkStructureType.ImageMemoryBarrier,
+            oldLayout = oldLayout,
+            newLayout = newLayout,
+            srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            image = image,
+            subresourceRange = new VkImageSubresourceRange
+            {
+                aspectMask = VkImageAspectFlags.Color,
+                baseMipLevel = 0,
+                levelCount = 1,
+                baseArrayLayer = 0,
+                layerCount = 1
+            }
+        };
+
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+
+        if (
+            oldLayout == VkImageLayout.Undefined
+            && newLayout == VkImageLayout.ColorAttachmentOptimal
+        )
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VkAccessFlags.ColorAttachmentWrite;
+            sourceStage = VkPipelineStageFlags.TopOfPipe;
+            destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
+        }
+        else if (
+            oldLayout == VkImageLayout.ColorAttachmentOptimal
+            && newLayout == VkImageLayout.PresentSrcKHR
+        )
+        {
+            barrier.srcAccessMask = VkAccessFlags.ColorAttachmentWrite;
+            barrier.dstAccessMask = 0;
+            sourceStage = VkPipelineStageFlags.ColorAttachmentOutput;
+            destinationStage = VkPipelineStageFlags.BottomOfPipe;
+        }
+        else
+        {
+            throw new NotSupportedException("Unsupported layout transition.");
+        }
+
+        vkCmdPipelineBarrier(
+            cmd,
+            sourceStage,
+            destinationStage,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &barrier
+        );
+    }
+
+    public void Dispose()
+    {
         vkDeviceWaitIdle(_logicalDevice);
         
-        foreach (var framebuffer in _framebuffers) {
-            vkDestroyFramebuffer(_logicalDevice, framebuffer, null);
-        }
-        vkDestroyRenderPass(_logicalDevice, _renderPass, null);
-
         _inFlightFence.Dispose();
         _renderFinishedSemaphore.Dispose();
         _imageAvailableSemaphore.Dispose();
@@ -251,6 +277,5 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         
         _mainSwapchain.Dispose();
         _surface.Dispose();
-        _logicalDevice.Dispose();
     }
 }

@@ -35,6 +35,22 @@ public unsafe struct Surface : IDisposable {
         VkSurfaceCapabilitiesKHR capabilities = swapchainInfo.Capabilities;
         return (capabilities.minImageExtent.width, capabilities.maxImageExtent.width, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     }
+    
+    public readonly VkCompositeAlphaFlagsKHR ChooseBestCompositeAlpha(PhysicalDevice physicalDevice) {
+        var capabilities = physicalDevice.GetSurfaceCapabilities(this);
+
+        if ((capabilities.supportedCompositeAlpha & VkCompositeAlphaFlagsKHR.PreMultiplied) != 0) {
+            return VkCompositeAlphaFlagsKHR.PreMultiplied;
+        }
+        if ((capabilities.supportedCompositeAlpha & VkCompositeAlphaFlagsKHR.PostMultiplied) != 0) {
+            return VkCompositeAlphaFlagsKHR.PostMultiplied;
+        }
+        if ((capabilities.supportedCompositeAlpha & VkCompositeAlphaFlagsKHR.Inherit) != 0) {
+            return VkCompositeAlphaFlagsKHR.Inherit;
+        }
+        
+        return VkCompositeAlphaFlagsKHR.Opaque;
+    }
 
     public SwapchainCapabilitiesDescription GetSwapchainDescription(PhysicalDevice physicalDevice) {
         var capabilities = physicalDevice.GetSurfaceCapabilities(this);

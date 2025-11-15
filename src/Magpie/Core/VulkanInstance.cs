@@ -207,7 +207,7 @@ public unsafe struct VulkanInstance : IDisposable {
             : $"{messageSeverity} - {message}");
         
         Console.ResetColor();
-
+        
         return VK_FALSE;
     }
 

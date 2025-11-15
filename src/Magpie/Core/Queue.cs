@@ -49,6 +49,30 @@ public readonly unsafe struct Queue {
         }
     }
     
+    public readonly void Submit(CommandBuffer commandBuffer, Fence fence) {
+        VkCommandBuffer cmd = commandBuffer.Value;
+        VkSubmitInfo submitInfo = new() {
+            sType = VkStructureType.SubmitInfo,
+            commandBufferCount = 1,
+            pCommandBuffers = &cmd
+        };
+
+        var result = Vulkan.vkQueueSubmit(Value, 1, &submitInfo, fence);
+        if (result != VkResult.Success) {
+            throw new Exception($"failed to submit to queue!: {result}");
+        }
+    }
+    
+    public readonly void Submit(CommandBuffer commandBuffer) {
+        VkSubmitInfo submitInfo = new()
+        {
+            sType = VkStructureType.SubmitInfo,
+            commandBufferCount = 1,
+            pCommandBuffers = &commandBuffer.Value
+        };
+        Vulkan.vkQueueSubmit(Value, 1, &submitInfo, VkFence.Null);
+    }
+    
     public readonly VkResult TryPresent(Semaphore semaphore, Swapchain swapchain, uint imageIndex) 
         => Vulkan.vkQueuePresentKHR(Value, semaphore.Value, swapchain.Value, imageIndex);
 

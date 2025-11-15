@@ -42,7 +42,8 @@ public unsafe struct Swapchain :  IDisposable {
             imageColorSpace = format.colorSpace,
             imageExtent = new(width, height),
             imageArrayLayers = 1,
-            imageUsage = VkImageUsageFlags.ColorAttachment
+            imageUsage = VkImageUsageFlags.ColorAttachment,
+            compositeAlpha = surface.ChooseBestCompositeAlpha(device.PhysicalDevice)
         };
         
         var queueFamilies = device.PhysicalDevice.FindQueueFamilies(surface.Value);
@@ -57,7 +58,6 @@ public unsafe struct Swapchain :  IDisposable {
         }
         
         swapchainCreateInfo.preTransform = info.Capabilities.currentTransform;
-        swapchainCreateInfo.compositeAlpha = VkCompositeAlphaFlagsKHR.Opaque;
         swapchainCreateInfo.presentMode = presentMode;
         swapchainCreateInfo.clipped = true;
         
