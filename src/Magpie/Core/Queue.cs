@@ -28,8 +28,7 @@ public readonly unsafe struct Queue {
         VkSubmitInfo submitInfo = new() { sType = VkStructureType.SubmitInfo };
 
         VkSemaphore waitSem = waitSemaphore.Value;
-        VkPipelineStageFlags waitStage =
-            VkPipelineStageFlags.ColorAttachmentOutput;
+        VkPipelineStageFlags waitStage = VkPipelineStageFlags.ColorAttachmentOutput;
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = &waitSem;
         submitInfo.pWaitDstStageMask = &waitStage;
