@@ -1,17 +1,19 @@
 ﻿using Magpie.Graphics;
+using Standard;
 using Vortice.Vulkan;
+using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Core;
 
 /// <summary>
 ///     Records commands to be submitted to a queue.
 /// </summary>
-public struct CommandBuffer : IDisposable {
-    public CommandPool Pool;
+public unsafe struct CmdBuffer : IDisposable {
+    public CmdPool Pool;
     internal VkCommandBuffer Value;
     
-    public CommandBuffer(CommandPool commandPool, VkCommandBuffer value) {
-        Pool = commandPool;
+    public CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) {
+        Pool = cmdPool;
         Value = value;
     }
     
@@ -21,29 +23,35 @@ public struct CommandBuffer : IDisposable {
             sType = VkStructureType.CommandBufferBeginInfo,
             flags = flags
         };
-        Vulkan.vkBeginCommandBuffer(Value, &beginInfo);
+        Vulkan.vkBeginCommandBuffer(Value, &beginInfo).CheckResult("could not begin cmd buffer!");
+    }
+    
+    public void End() => vkEndCommandBuffer(Value).CheckResult("could not end cmd buffer!");
+
+    public void Reset(VkCommandBufferResetFlags flags = 0) => vkResetCommandBuffer(Value, flags).CheckResult("could not reset cmd buffer!");
+    
+    public void SetViewport(Rectangle rect, float minDepth = 0f, float maxDepth = 1f) {
+        VkViewport viewport = new(rect.X, rect.Y, rect.Width, rect.Height, minDepth, maxDepth);
+        vkCmdSetViewport(Value, 0, 1, &viewport);
     }
 
-    public void End() {
-        Vulkan.vkEndCommandBuffer(Value);
-    }
-
-    public void Reset(VkCommandBufferResetFlags flags = 0) {
-        Vulkan.vkResetCommandBuffer(Value, flags);
+    public void SetScissor(Rectangle rect) {
+        VkRect2D rectValue = new((int)rect.X, (int)rect.Y, (uint)rect.Width, (uint)rect.Height);
+        vkCmdSetScissor(Value, 0, 1, &rectValue);
     }
     
     public void Dispose() {
         
     }
     
-    public static implicit operator VkCommandBuffer(CommandBuffer device) => device.Value;
+    public static implicit operator VkCommandBuffer(CmdBuffer device) => device.Value;
 }
 
-public unsafe struct CommandPool {
+public unsafe struct CmdPool {
     public readonly LogicalDevice Device;
     internal VkCommandPool Value;
     
-    public unsafe CommandPool(LogicalDevice device, Queue queue) {
+    public unsafe CmdPool(LogicalDevice device, Queue queue) {
         Device = device;
         
         VkCommandPoolCreateFlags flags = VkCommandPoolCreateFlags.ResetCommandBuffer;
@@ -57,7 +65,7 @@ public unsafe struct CommandPool {
         Vulkan.vkCreateCommandPool(Device, &createInfo, null, out Value);
     }
     
-    public readonly CommandBuffer CreateCommandBuffer(bool isPrimary = true) {
+    public readonly CmdBuffer CreateCommandBuffer(bool isPrimary = true) {
         VkCommandBufferAllocateInfo commandBufferAllocateInfo = new() {
             commandPool = Value,
             level = isPrimary ? VkCommandBufferLevel.Primary : VkCommandBufferLevel.Secondary,
@@ -66,7 +74,7 @@ public unsafe struct CommandPool {
 
         var result = Vulkan.vkAllocateCommandBuffer(Device, &commandBufferAllocateInfo, out var newBuffer);
 
-        return new CommandBuffer(this, newBuffer);
+        return new CmdBuffer(this, newBuffer);
     }
     
     public void Dispose() {

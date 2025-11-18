@@ -12,8 +12,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     public VulkanInstance Instance;
     private Swapchain _mainSwapchain;
     private Surface _surface;
-    private CommandPool _graphicsCmdPool;
-    private readonly CommandBuffer[] _mainCommandBuffers; //one buffer per frame in flight
+    private readonly CmdPool _graphicsCmdPool;
+    private readonly CmdBuffer[] _mainCommandBuffers; //one buffer per frame in flight
 
     private readonly Queue _presentQueue;
     private readonly Queue _graphicsQueue;
@@ -22,7 +22,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private readonly LogicalDevice _logicalDevice;
 
     private readonly Semaphore[] _imageAvailableSemaphores;
-    private readonly Semaphore[] _renderFinishedSemaphores;
+    private Semaphore[] _renderFinishedSemaphores;
     private readonly Fence[] _inFlightFences;
     private VkFence[] _imagesInFlight = null!;
 
@@ -46,23 +46,23 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _presentQueue = _logicalDevice.GetQueue(queueFamilies.PresentFamily!.Value, 0);
         
         CreateSwapchain();
-        
+
         _graphicsCmdPool = new(_logicalDevice, _graphicsQueue);
         Console.WriteLine($"main cmd pool created!");
 
-        _mainCommandBuffers = new CommandBuffer[max_frames_in_flight];
-        for (int i = 0; i < max_frames_in_flight; i++) {
-            _mainCommandBuffers[i] = _graphicsCmdPool.CreateCommandBuffer();
-        }
-
+        _mainCommandBuffers = new CmdBuffer[max_frames_in_flight];
         _imageAvailableSemaphores = new Semaphore[max_frames_in_flight];
-        _renderFinishedSemaphores = new Semaphore[max_frames_in_flight];
         _inFlightFences = new Fence[max_frames_in_flight];
 
         for (int i = 0; i < max_frames_in_flight; i++) {
+            _mainCommandBuffers[i] = _graphicsCmdPool.CreateCommandBuffer();
             _imageAvailableSemaphores[i] = new(_logicalDevice);
-            _renderFinishedSemaphores[i] = new(_logicalDevice);
             _inFlightFences[i] = new(_logicalDevice);
+        }
+        
+        _renderFinishedSemaphores = new Semaphore[_mainSwapchain.Images.Length];
+        for (int i = 0; i < _mainSwapchain.Images.Length; i++) {
+             _renderFinishedSemaphores[i] = new(_logicalDevice);
         }
 
         _fences = new FencePool(_logicalDevice);
@@ -74,44 +74,49 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         vkGetPhysicalDeviceMemoryProperties(_physicalDevice.Value, out VkPhysicalDeviceMemoryProperties deviceMemoryProperties);
 
         for (int i = 0; i < deviceMemoryProperties.memoryTypeCount; i++) {
-            if (((typeBits >> i) & 1) == 1) {
+            if ((typeBits & 1) == 1) {
                 if ((deviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
                     return (uint)i;
                 }
             }
+            typeBits >>= 1;
         }
 
         throw new Exception("Could not find a suitable memory type!");
     }
     
-    public void Clear(VkClearValue clearColor) {
+    /// <summary>
+    ///     Attempts to begin a new rendering frame and clears the backbuffer.
+    /// </summary>
+    public bool Begin(VkClearValue clearColor) {
         var currentExtent = _surface.ChooseSwapExtent(_physicalDevice);
 
         if (currentExtent.width == 0 || currentExtent.height == 0) {
             _isFrameStarted = false;
-            return;
+            return false;
         }
 
         if (currentExtent.width != _mainSwapchain.Width || currentExtent.height != _mainSwapchain.Height) {
             RecreateSwapchain();
             _isFrameStarted = false;
-            return;
+            return false;
         }
 
         if (_isFrameStarted) {
-            throw new InvalidOperationException("cannot call Clear twice in a frame!");
+            throw new InvalidOperationException("cannot call Begin twice in a frame! Call End() first.");
         }
 
         Fence currentInFlightFence = _inFlightFences[_currentFrame];
-        CommandBuffer currentCommandBuffer = _mainCommandBuffers[_currentFrame];
+        CmdBuffer currentCmdBuffer = _mainCommandBuffers[_currentFrame];
+        Semaphore currentImageAvailableSemaphore = _imageAvailableSemaphores[_currentFrame];
 
-        currentInFlightFence.Wait(); 
-
+        currentInFlightFence.Wait();
+        
         VkResult result = vkAcquireNextImageKHR(
             _logicalDevice,
             _mainSwapchain.Value,
             ulong.MaxValue,
-            _imageAvailableSemaphores[_currentFrame],
+            currentImageAvailableSemaphore,
             VkFence.Null,
             out _imageIndex
         );
@@ -119,26 +124,38 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         if (result == VkResult.ErrorOutOfDateKHR) {
             RecreateSwapchain();
             _isFrameStarted = false;
-            return;
+            return false;
         }
         else if (result != VkResult.Success && result != VkResult.SuboptimalKHR) {
             throw new Exception($"failed to acquire swapchain image!: {result}");
         }
-
-        VkFence fenceToWaitOn = _imagesInFlight[(int)_imageIndex];
-        if (fenceToWaitOn.Handle != VkFence.Null.Handle)
-        {
-            vkWaitForFences(_logicalDevice, 1, &fenceToWaitOn, true, ulong.MaxValue).CheckResult();
+        
+        if (_mainSwapchain.Images.Length == 0) {
+            RecreateSwapchain();
+            _isFrameStarted = false;
+            return false;
         }
+        if (_imageIndex >= _mainSwapchain.Images.Length) {
+            RecreateSwapchain();
+            _isFrameStarted = false;
+            return false;
+        }
+
+        VkFence imageFence = _imagesInFlight[(int)_imageIndex];
+        if (imageFence.Handle != VkFence.Null.Handle)
+        {
+            vkWaitForFences(_logicalDevice, 1, &imageFence, true, ulong.MaxValue).CheckResult();
+        }
+
         _imagesInFlight[(int)_imageIndex] = currentInFlightFence;
 
         _isFrameStarted = true;
         currentInFlightFence.Reset();
 
-        currentCommandBuffer.Reset();
-        currentCommandBuffer.Begin();
+        currentCmdBuffer.Reset();
+        currentCmdBuffer.Begin(flags: VkCommandBufferUsageFlags.OneTimeSubmit);
 
-        TransitionImageLayout(currentCommandBuffer, _mainSwapchain.Images[_imageIndex], VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
+        TransitionImageLayout(currentCmdBuffer, _mainSwapchain.Images[_imageIndex], VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
 
         VkRenderingAttachmentInfo colorAttachment = new()
         {
@@ -158,53 +175,50 @@ public sealed unsafe class GraphicsDevice : IDisposable {
             pColorAttachments = &colorAttachment
         };
 
-        vkCmdBeginRendering(currentCommandBuffer, &renderingInfo);
+        vkCmdBeginRendering(currentCmdBuffer, &renderingInfo);
+        return true;
     }
     
-    public void Clear(Color color) => Clear(color.ToVkClearValue());
+    public bool Begin(Color color) => Begin(color.ToVkClearValue());
     
-    public CommandBuffer AllocateCommandBuffer(bool primary) {
-        return _graphicsCmdPool.CreateCommandBuffer(primary);
+    public CmdBuffer AllocateCommandBuffer(bool level) {
+        return _graphicsCmdPool.CreateCommandBuffer(level);
     }
     
-    public CommandBuffer RequestCurrentCommandBuffer() {
+    public CmdBuffer RequestCurrentCommandBuffer() {
         if (!_isFrameStarted) {
-            throw new InvalidOperationException("Ccnnot get command buffer before Clear() is called!");
+            throw new InvalidOperationException("cannot get command buffer! a frame was not successfully started or has already ended!");
         }
         
         return _mainCommandBuffers[_currentFrame];
     }
 
-    public void Submit(CommandBuffer cmd, Fence fence) {
-        _graphicsQueue.Submit(cmd, fence);
-    }
+    public void Submit(CmdBuffer cmd, Fence fence) => _graphicsQueue.Submit(cmd, fence);
     
-    public void Present() {
+    public void End() {
         if (!_isFrameStarted) {
             return;
         }
 
-        CommandBuffer currentCommandBuffer = _mainCommandBuffers[_currentFrame]; 
+        CmdBuffer currentCmdBuffer = _mainCommandBuffers[_currentFrame]; 
+        Semaphore currentImageAvailableSemaphore = _imageAvailableSemaphores[_currentFrame];
+        Semaphore currentRenderFinishedSemaphore = _renderFinishedSemaphores[_imageIndex];
+        Fence currentInFlightFence = _inFlightFences[_currentFrame];
 
-        vkCmdEndRendering(currentCommandBuffer);
+        vkCmdEndRendering(currentCmdBuffer);
 
         TransitionImageLayout(
-            currentCommandBuffer,
+            currentCmdBuffer,
             _mainSwapchain.Images[_imageIndex],
             VkImageLayout.ColorAttachmentOptimal,
             VkImageLayout.PresentSrcKHR
         );
 
-        currentCommandBuffer.End();
+        currentCmdBuffer.End();
 
-        _graphicsQueue.Submit(
-            currentCommandBuffer,
-            _imageAvailableSemaphores[_currentFrame],
-            _renderFinishedSemaphores[_currentFrame],
-            _inFlightFences[_currentFrame]
-        );
+        _graphicsQueue.Submit(currentCmdBuffer, currentImageAvailableSemaphore, currentRenderFinishedSemaphore, currentInFlightFence);
 
-        var result = _presentQueue.TryPresent(_renderFinishedSemaphores[_currentFrame], _mainSwapchain, _imageIndex);
+        var result = _presentQueue.TryPresent(currentRenderFinishedSemaphore, _mainSwapchain, _imageIndex);
 
         if (result == VkResult.ErrorOutOfDateKHR || result == VkResult.SuboptimalKHR) {
             RecreateSwapchain();
@@ -227,21 +241,36 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _mainSwapchain = new(_logicalDevice, extent.width, extent.height, _surface);
         Console.WriteLine($"main backbuffer created: {extent.width}x{extent.height}");
 
-        _imagesInFlight = new VkFence[_mainSwapchain.Images.Length];
+        if (_imagesInFlight == null || _imagesInFlight.Length != _mainSwapchain.Images.Length) {
+            _imagesInFlight = new VkFence[_mainSwapchain.Images.Length];
+        }
+        for (int i = 0; i < _imagesInFlight.Length; i++) {
+            _imagesInFlight[i] = VkFence.Null;
+        }
     }
     
     public void RecreateSwapchain() {
         vkDeviceWaitIdle(_logicalDevice);
+        if (_renderFinishedSemaphores != null) {
+            foreach(var semaphore in _renderFinishedSemaphores) {
+                semaphore.Dispose();
+            }
+        }
 
         CleanupSwapchain();
         CreateSwapchain();
+        
+        _renderFinishedSemaphores = new Semaphore[_mainSwapchain.Images.Length];
+        for (int i = 0; i < _mainSwapchain.Images.Length; i++) {
+             _renderFinishedSemaphores[i] = new(_logicalDevice);
+        }
     }
 
     private void CleanupSwapchain() {
         _mainSwapchain.Dispose();
     }
 
-    private void TransitionImageLayout(CommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    private void TransitionImageLayout(CmdBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
         VkImageMemoryBarrier barrier = new() {
             sType = VkStructureType.ImageMemoryBarrier,
             oldLayout = oldLayout,
@@ -277,37 +306,25 @@ public sealed unsafe class GraphicsDevice : IDisposable {
             throw new NotSupportedException("unsupported layout transition!");
         }
 
-        vkCmdPipelineBarrier(
-            cmd,
-            sourceStage,
-            destinationStage,
-            0,
-            0,
-            null,
-            0,
-            null,
-            1,
-            &barrier
-        );
+        vkCmdPipelineBarrier(cmd, sourceStage, destinationStage, 0, 0, null, 0, null, 1, &barrier);
     }
 
     public void Dispose() {
-        vkDeviceWaitIdle(_logicalDevice); 
+        vkDeviceWaitIdle(_logicalDevice);
         
         _fences.Dispose();
 
         foreach(var fence in _inFlightFences) {
             fence.Dispose();
         }
-
-        foreach(var semaphore in _renderFinishedSemaphores) {
-            semaphore.Dispose();
-        }
-
         foreach(var semaphore in _imageAvailableSemaphores) {
             semaphore.Dispose();
         }
-
+        if (_renderFinishedSemaphores != null) {
+            foreach(var semaphore in _renderFinishedSemaphores) {
+                semaphore.Dispose();
+            }
+        }
         foreach(var commandBuffer in _mainCommandBuffers) {
             commandBuffer.Dispose();
         }

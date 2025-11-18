@@ -19,7 +19,7 @@ public readonly unsafe struct Queue {
     }
 
     public readonly void Submit(
-        CommandBuffer commandBuffer,
+        CmdBuffer cmdBuffer,
         Semaphore waitSemaphore,
         Semaphore signalSemaphore,
         Fence fence
@@ -33,7 +33,7 @@ public readonly unsafe struct Queue {
         submitInfo.pWaitSemaphores = &waitSem;
         submitInfo.pWaitDstStageMask = &waitStage;
 
-        VkCommandBuffer cmd = commandBuffer.Value;
+        VkCommandBuffer cmd = cmdBuffer.Value;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &cmd;
 
@@ -48,8 +48,8 @@ public readonly unsafe struct Queue {
         }
     }
     
-    public readonly void Submit(CommandBuffer commandBuffer, Fence fence) {
-        VkCommandBuffer cmd = commandBuffer.Value;
+    public readonly void Submit(CmdBuffer cmdBuffer, Fence fence) {
+        VkCommandBuffer cmd = cmdBuffer.Value;
         VkSubmitInfo submitInfo = new() {
             sType = VkStructureType.SubmitInfo,
             commandBufferCount = 1,
@@ -62,12 +62,12 @@ public readonly unsafe struct Queue {
         }
     }
     
-    public readonly void Submit(CommandBuffer commandBuffer) {
+    public readonly void Submit(CmdBuffer cmdBuffer) {
         VkSubmitInfo submitInfo = new()
         {
             sType = VkStructureType.SubmitInfo,
             commandBufferCount = 1,
-            pCommandBuffers = &commandBuffer.Value
+            pCommandBuffers = &cmdBuffer.Value
         };
         Vulkan.vkQueueSubmit(Value, 1, &submitInfo, VkFence.Null);
     }
