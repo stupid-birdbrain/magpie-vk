@@ -70,21 +70,6 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     public FenceLease RequestFence(VkFenceCreateFlags flags) => _fences.Rent(flags);
     
-    public uint GetMemoryTypeIndex(uint typeBits, VkMemoryPropertyFlags properties) {
-        vkGetPhysicalDeviceMemoryProperties(_physicalDevice.Value, out VkPhysicalDeviceMemoryProperties deviceMemoryProperties);
-
-        for (int i = 0; i < deviceMemoryProperties.memoryTypeCount; i++) {
-            if ((typeBits & 1) == 1) {
-                if ((deviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                    return (uint)i;
-                }
-            }
-            typeBits >>= 1;
-        }
-
-        throw new Exception("Could not find a suitable memory type!");
-    }
-    
     /// <summary>
     ///     Attempts to begin a new rendering frame and clears the backbuffer.
     /// </summary>
