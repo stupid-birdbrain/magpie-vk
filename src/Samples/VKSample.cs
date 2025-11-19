@@ -126,11 +126,11 @@ internal sealed unsafe class VkSample {
         Vulkan.vkGetBufferMemoryRequirements(_vkDevice, stagingVertexBuffer, out VkMemoryRequirements vertexMemReqs);
         Vulkan.vkGetBufferMemoryRequirements(_vkDevice, stagingIndexBuffer, out VkMemoryRequirements indexMemReqs);
 
-        VkMemoryAllocateInfo vertexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = vertexMemReqs.size, memoryTypeIndex = Graphics.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
+        VkMemoryAllocateInfo vertexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = vertexMemReqs.size, memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
         Vulkan.vkAllocateMemory(_vkDevice, &vertexMemAlloc, null, out VkDeviceMemory stagingVertexBufferMemory).CheckResult();
         Vulkan.vkBindBufferMemory(_vkDevice, stagingVertexBuffer, stagingVertexBufferMemory, 0).CheckResult();
 
-        VkMemoryAllocateInfo indexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = indexMemReqs.size, memoryTypeIndex = Graphics.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
+        VkMemoryAllocateInfo indexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = indexMemReqs.size, memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
         Vulkan.vkAllocateMemory(_vkDevice, &indexMemAlloc, null, out VkDeviceMemory stagingIndexBufferMemory).CheckResult();
         Vulkan.vkBindBufferMemory(_vkDevice, stagingIndexBuffer, stagingIndexBufferMemory, 0).CheckResult();
         
@@ -148,7 +148,7 @@ internal sealed unsafe class VkSample {
         Vulkan.vkCreateBuffer(_vkDevice, &deviceVertexBufferInfo, null, out _vertexBuffer).CheckResult();
         Vulkan.vkGetBufferMemoryRequirements(_vkDevice, _vertexBuffer, out vertexMemReqs);
         vertexMemAlloc.allocationSize = vertexMemReqs.size;
-        vertexMemAlloc.memoryTypeIndex = Graphics.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
+        vertexMemAlloc.memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
         Vulkan.vkAllocateMemory(_vkDevice, &vertexMemAlloc, null, out _vertexBufferMemory).CheckResult();
         Vulkan.vkBindBufferMemory(_vkDevice, _vertexBuffer, _vertexBufferMemory, 0).CheckResult();
 
@@ -156,7 +156,7 @@ internal sealed unsafe class VkSample {
         Vulkan.vkCreateBuffer(_vkDevice, &deviceIndexBufferInfo, null, out _indexBuffer).CheckResult();
         Vulkan.vkGetBufferMemoryRequirements(_vkDevice, _indexBuffer, out indexMemReqs);
         indexMemAlloc.allocationSize = indexMemReqs.size;
-        indexMemAlloc.memoryTypeIndex = Graphics.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
+        indexMemAlloc.memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
         Vulkan.vkAllocateMemory(_vkDevice, &indexMemAlloc, null, out _indexBufferMemory).CheckResult();
         Vulkan.vkBindBufferMemory(_vkDevice, _indexBuffer, _indexBufferMemory, 0).CheckResult();
         

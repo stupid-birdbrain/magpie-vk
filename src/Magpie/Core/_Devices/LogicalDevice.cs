@@ -66,6 +66,22 @@ public unsafe struct LogicalDevice : IDisposable {
         
         Vulkan.vkLoadDevice(Value);
     }
+    
+        
+    public uint GetMemoryTypeIndex(uint typeBits, VkMemoryPropertyFlags properties) {
+        Vulkan.vkGetPhysicalDeviceMemoryProperties(PhysicalDevice.Value, out VkPhysicalDeviceMemoryProperties deviceMemoryProperties);
+
+        for (int i = 0; i < deviceMemoryProperties.memoryTypeCount; i++) {
+            if ((typeBits & 1) == 1) {
+                if ((deviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return (uint)i;
+                }
+            }
+            typeBits >>= 1;
+        }
+
+        throw new Exception("Could not find a suitable memory type!");
+    }
         
     public void Dispose() {
         if (Value != VkDevice.Null) {
