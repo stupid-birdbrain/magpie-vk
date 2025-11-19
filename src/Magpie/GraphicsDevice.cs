@@ -34,6 +34,9 @@ public sealed unsafe class GraphicsDevice : IDisposable {
 
     public bool IsFrameStarted => _isFrameStarted;
     public Swapchain MainSwapchain => _mainSwapchain;
+    
+    public CmdPool GraphicsCommandPool => _graphicsCmdPool;
+    public Queue GraphicsQueue => _graphicsQueue;
 
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
         Instance = instance;
