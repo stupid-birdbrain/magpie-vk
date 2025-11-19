@@ -9,7 +9,8 @@ using StainedGlass;
 using Standard;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
-    
+using Buffer = Magpie.Core.Buffer;
+
 namespace Samples;
     
 [StructLayout(LayoutKind.Sequential)]
@@ -29,13 +30,18 @@ internal sealed unsafe class VkSample {
         
     private SdlWindow _windowHandle;
     private ShaderCompiler? _compiler;
-        
+
     private Pipeline _pipeline;
-        
-    private VkBuffer _vertexBuffer;
-    private VkDeviceMemory _vertexBufferMemory;
-    private VkBuffer _indexBuffer;
-    private VkDeviceMemory _indexBufferMemory;
+    
+    private Buffer _vertexBuffer; // Use new Buffer struct
+    private DeviceMemory _vertexBufferMemory; // Use new DeviceMemory struct
+    private Buffer _indexBuffer;  // Use new Buffer struct
+    private DeviceMemory _indexBufferMemory;
+
+    public void Run(string[] args) {
+        Initialize(args);
+        Dispose();
+    }
         
     public void Initialize(string[] args) { 
         _compiler = new ShaderCompiler();
@@ -102,8 +108,7 @@ internal sealed unsafe class VkSample {
         Vulkan.vkDestroyShaderModule(_vkDevice, vertmodule);
         Vulkan.vkDestroyShaderModule(_vkDevice, fragmodule);
             
-        ReadOnlySpan<VertexPositionColor> sourceVertexData =
-        [
+        ReadOnlySpan<VertexPositionColor> sourceVertexData = [
             // Top-Left
             new VertexPositionColor(new Vector3(-0.5f, -0.5f, 0.0f), new Vector4(1.0f, 0.0f, 0.5f, 1.0f)),
             // Top-Right
@@ -118,52 +123,26 @@ internal sealed unsafe class VkSample {
         ReadOnlySpan<uint> sourceIndexData = [0, 3, 2, 0, 2, 1];
         uint indexBufferSize = (uint)(sourceIndexData.Length * sizeof(uint));
 
-        VkBufferCreateInfo stagingBufferInfo = new() { sType = VkStructureType.BufferCreateInfo, size = vertexBufferSize, usage = VkBufferUsageFlags.TransferSrc };
-        Vulkan.vkCreateBuffer(_vkDevice, &stagingBufferInfo, null, out VkBuffer stagingVertexBuffer).CheckResult();
-        VkBufferCreateInfo stagingIndexBufferInfo = new() { sType = VkStructureType.BufferCreateInfo, size = indexBufferSize, usage = VkBufferUsageFlags.TransferSrc };
-        Vulkan.vkCreateBuffer(_vkDevice, &stagingIndexBufferInfo, null, out VkBuffer stagingIndexBuffer).CheckResult();
+        using var stagingVertexBuffer = new Buffer(_vkDevice, vertexBufferSize, VkBufferUsageFlags.TransferSrc);
+        using var stagingIndexBuffer = new Buffer(_vkDevice, indexBufferSize, VkBufferUsageFlags.TransferSrc);
 
-        Vulkan.vkGetBufferMemoryRequirements(_vkDevice, stagingVertexBuffer, out VkMemoryRequirements vertexMemReqs);
-        Vulkan.vkGetBufferMemoryRequirements(_vkDevice, stagingIndexBuffer, out VkMemoryRequirements indexMemReqs);
-
-        VkMemoryAllocateInfo vertexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = vertexMemReqs.size, memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
-        Vulkan.vkAllocateMemory(_vkDevice, &vertexMemAlloc, null, out VkDeviceMemory stagingVertexBufferMemory).CheckResult();
-        Vulkan.vkBindBufferMemory(_vkDevice, stagingVertexBuffer, stagingVertexBufferMemory, 0).CheckResult();
-
-        VkMemoryAllocateInfo indexMemAlloc = new() { sType = VkStructureType.MemoryAllocateInfo, allocationSize = indexMemReqs.size, memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent) };
-        Vulkan.vkAllocateMemory(_vkDevice, &indexMemAlloc, null, out VkDeviceMemory stagingIndexBufferMemory).CheckResult();
-        Vulkan.vkBindBufferMemory(_vkDevice, stagingIndexBuffer, stagingIndexBufferMemory, 0).CheckResult();
+        using var stagingVertexMemory = new DeviceMemory(stagingVertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        using var stagingIndexMemory = new DeviceMemory(stagingIndexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         
-        void* pMappedVertexData;
-        Vulkan.vkMapMemory(_vkDevice, stagingVertexBufferMemory, 0, vertexMemAlloc.allocationSize, 0, &pMappedVertexData).CheckResult();
-        sourceVertexData.CopyTo(new Span<VertexPositionColor>(pMappedVertexData, sourceVertexData.Length));
-        Vulkan.vkUnmapMemory(_vkDevice, stagingVertexBufferMemory);
+        stagingVertexMemory.CopyFrom(sourceVertexData);
+        stagingIndexMemory.CopyFrom(sourceIndexData);
 
-        void* pMappedIndexData;
-        Vulkan.vkMapMemory(_vkDevice, stagingIndexBufferMemory, 0, indexMemAlloc.allocationSize, 0, &pMappedIndexData).CheckResult();
-        sourceIndexData.CopyTo(new Span<uint>(pMappedIndexData, sourceIndexData.Length));
-        Vulkan.vkUnmapMemory(_vkDevice, stagingIndexBufferMemory);
+        _vertexBuffer = new Buffer(_vkDevice, vertexBufferSize, VkBufferUsageFlags.VertexBuffer | VkBufferUsageFlags.TransferDst);
+        _indexBuffer = new Buffer(_vkDevice, indexBufferSize, VkBufferUsageFlags.IndexBuffer | VkBufferUsageFlags.TransferDst);
 
-        VkBufferCreateInfo deviceVertexBufferInfo = new() { sType = VkStructureType.BufferCreateInfo, size = vertexBufferSize, usage = VkBufferUsageFlags.VertexBuffer | VkBufferUsageFlags.TransferDst };
-        Vulkan.vkCreateBuffer(_vkDevice, &deviceVertexBufferInfo, null, out _vertexBuffer).CheckResult();
-        Vulkan.vkGetBufferMemoryRequirements(_vkDevice, _vertexBuffer, out vertexMemReqs);
-        vertexMemAlloc.allocationSize = vertexMemReqs.size;
-        vertexMemAlloc.memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(vertexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
-        Vulkan.vkAllocateMemory(_vkDevice, &vertexMemAlloc, null, out _vertexBufferMemory).CheckResult();
-        Vulkan.vkBindBufferMemory(_vkDevice, _vertexBuffer, _vertexBufferMemory, 0).CheckResult();
-
-        VkBufferCreateInfo deviceIndexBufferInfo = new() { sType = VkStructureType.BufferCreateInfo, size = indexBufferSize, usage = VkBufferUsageFlags.IndexBuffer | VkBufferUsageFlags.TransferDst };
-        Vulkan.vkCreateBuffer(_vkDevice, &deviceIndexBufferInfo, null, out _indexBuffer).CheckResult();
-        Vulkan.vkGetBufferMemoryRequirements(_vkDevice, _indexBuffer, out indexMemReqs);
-        indexMemAlloc.allocationSize = indexMemReqs.size;
-        indexMemAlloc.memoryTypeIndex = _vkDevice.GetMemoryTypeIndex(indexMemReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal);
-        Vulkan.vkAllocateMemory(_vkDevice, &indexMemAlloc, null, out _indexBufferMemory).CheckResult();
-        Vulkan.vkBindBufferMemory(_vkDevice, _indexBuffer, _indexBufferMemory, 0).CheckResult();
+        _vertexBufferMemory = new DeviceMemory(_vertexBuffer, VkMemoryPropertyFlags.DeviceLocal);
+        _indexBufferMemory = new DeviceMemory(_indexBuffer, VkMemoryPropertyFlags.DeviceLocal);
         
-        using(var fence = Graphics.RequestFence(VkFenceCreateFlags.None)) {
+        {
+            using var fence = Graphics.RequestFence(VkFenceCreateFlags.None);
             var copyCmd = Graphics.AllocateCommandBuffer(true);
 
-            copyCmd.Begin(VkCommandBufferUsageFlags.OneTimeSubmit);
+            copyCmd.Begin();
             
             VkBufferCopy vertexCopyRegion = new() { dstOffset = 0, srcOffset = 0, size = vertexBufferSize};
             Vulkan.vkCmdCopyBuffer(copyCmd, stagingVertexBuffer, _vertexBuffer, 1, &vertexCopyRegion);
@@ -174,13 +153,9 @@ internal sealed unsafe class VkSample {
             copyCmd.End();
 
             Graphics.Submit(copyCmd, fence);
-            fence.Wait(); 
+            fence.Wait();
         }
 
-        Vulkan.vkDestroyBuffer(_vkDevice, stagingVertexBuffer, null);
-        Vulkan.vkFreeMemory(_vkDevice, stagingVertexBufferMemory, null);
-        Vulkan.vkDestroyBuffer(_vkDevice, stagingIndexBuffer, null);
-        Vulkan.vkFreeMemory(_vkDevice, stagingIndexBufferMemory, null);
             
         while (!Quit) {
             Time.Start();
@@ -202,8 +177,6 @@ internal sealed unsafe class VkSample {
                 
             Time.Stop();
         }
-            
-        Dispose();
     }
 
     void Draw() {
@@ -236,10 +209,11 @@ internal sealed unsafe class VkSample {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
             
         _pipeline.Dispose();
-        Vulkan.vkDestroyBuffer(_vkDevice, _vertexBuffer);
-        Vulkan.vkFreeMemory(_vkDevice, _vertexBufferMemory);
-        Vulkan.vkDestroyBuffer(_vkDevice, _indexBuffer, null);
-        Vulkan.vkFreeMemory(_vkDevice, _indexBufferMemory, null);
+
+        _vertexBuffer.Dispose();       
+        _vertexBufferMemory.Dispose(); 
+        _indexBuffer.Dispose();        
+        _indexBufferMemory.Dispose();
             
         Graphics!.Dispose();
             

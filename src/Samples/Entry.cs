@@ -2,6 +2,6 @@
 
 file class Program {
     public static void Main(string[] args) {
-        new VkSample().Initialize(args);
+        new VkSample().Run(args);
     }
 }
