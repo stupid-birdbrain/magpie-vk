@@ -23,7 +23,7 @@ public unsafe struct CmdBuffer : IDisposable {
             sType = VkStructureType.CommandBufferBeginInfo,
             flags = flags
         };
-        Vulkan.vkBeginCommandBuffer(Value, &beginInfo).CheckResult("could not begin cmd buffer!");
+        vkBeginCommandBuffer(Value, &beginInfo).CheckResult("could not begin cmd buffer!");
     }
     
     public void End() => vkEndCommandBuffer(Value).CheckResult("could not end cmd buffer!");
@@ -41,7 +41,11 @@ public unsafe struct CmdBuffer : IDisposable {
     }
     
     public void Dispose() {
-        
+        if (Value != VkCommandBuffer.Null) {
+            fixed(VkCommandBuffer* ptr = &Value)
+                vkFreeCommandBuffers(Pool.Device, Pool.Value, 1, ptr);
+            Value = VkCommandBuffer.Null;
+        }
     }
     
     public static implicit operator VkCommandBuffer(CmdBuffer device) => device.Value;
@@ -62,7 +66,7 @@ public unsafe struct CmdPool {
             flags = flags
         };
         
-        Vulkan.vkCreateCommandPool(Device, &createInfo, null, out Value);
+        vkCreateCommandPool(Device, &createInfo, null, out Value);
     }
     
     public readonly CmdBuffer CreateCommandBuffer(bool isPrimary = true) {
@@ -72,13 +76,13 @@ public unsafe struct CmdPool {
             commandBufferCount = 1
         };
 
-        var result = Vulkan.vkAllocateCommandBuffer(Device, &commandBufferAllocateInfo, out var newBuffer);
+        var result = vkAllocateCommandBuffer(Device, &commandBufferAllocateInfo, out var newBuffer);
 
         return new CmdBuffer(this, newBuffer);
     }
     
     public void Dispose() {
-        Vulkan.vkDestroyCommandPool(Device, Value, null);
+        vkDestroyCommandPool(Device, Value, null);
         Value = default;
     }
 }

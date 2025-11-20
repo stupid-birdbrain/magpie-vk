@@ -3,11 +3,13 @@ using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Graphics;
+//lots of work to be done here
 
 public readonly unsafe struct Pipeline : IDisposable {
     public readonly LogicalDevice Device;
     public readonly VkPipeline Value;
     public readonly VkPipelineLayout Layout;
+    public readonly DescriptorSetLayout DescriptorSetLayout;
 
     public Pipeline(
         LogicalDevice device,
@@ -15,17 +17,22 @@ public readonly unsafe struct Pipeline : IDisposable {
         ReadOnlySpan<byte> vertShaderCode,
         ReadOnlySpan<byte> fragShaderCode,
         VkVertexInputBindingDescription vertexBinding,
-        ReadOnlySpan<VkVertexInputAttributeDescription> vertexAttributes
+        ReadOnlySpan<VkVertexInputAttributeDescription> vertexAttributes,
+        DescriptorSetLayout descriptorSetLayout
     )
     {
         Device = device;
+        DescriptorSetLayout = descriptorSetLayout;
 
         using var vertModule = new ShaderModule(device, vertShaderCode.ToArray());
         using var fragModule = new ShaderModule(device, fragShaderCode.ToArray());
 
+        VkDescriptorSetLayout descLayout = descriptorSetLayout.Value;
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = new()
         {
-            sType = VkStructureType.PipelineLayoutCreateInfo
+            sType = VkStructureType.PipelineLayoutCreateInfo,
+            setLayoutCount = 1,
+            pSetLayouts = &descLayout
         };
         vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, null, out Layout).CheckResult();
 
