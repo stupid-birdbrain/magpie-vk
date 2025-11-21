@@ -3,10 +3,23 @@ using Vortice.Vulkan;
 
 namespace Magpie.Utilities;
 
-public static class VectorExtensions {
-    public static Vector2 AsVector2(this VkExtent2D vec) => new Vector2(vec.width, vec.height);
-    
-    public static VkFormat GetFormat(this Vector2 vec) => VkFormat.R32G32Sfloat;
-    public static VkFormat GetFormat(this Vector3 vec) => VkFormat.R32G32B32Sfloat;
-    public static VkFormat GetFormat(this Vector4 vec) => VkFormat.R32G32B32A32Sfloat;
+#if NET10_0_OR_GREATER
+public static class Vec2Ext {
+    extension(Vector2 vec) {
+        public static VkFormat AsFormat() => VkFormat.R32G32Sfloat;
+    }
 }
+
+public static class Vec3Ext {
+    extension(Vector3 vec) {
+        public static VkFormat AsFormat() => VkFormat.R32G32B32Sfloat;
+    }
+}
+
+public static class Vec4Ext {
+    extension(Vector4 vec) {
+        public static VkFormat AsFormat() => VkFormat.R32G32B32A32Sfloat;
+    }
+
+}
+#endif
