@@ -14,6 +14,7 @@ public readonly unsafe struct Pipeline : IDisposable {
     public Pipeline(
         LogicalDevice device,
         VkFormat swapchainFormat,
+        VkFormat depthFormat,
         ReadOnlySpan<byte> vertShaderCode,
         ReadOnlySpan<byte> fragShaderCode,
         VkVertexInputBindingDescription vertexBinding,
@@ -54,10 +55,30 @@ public readonly unsafe struct Pipeline : IDisposable {
 
             VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = new() { sType = VkStructureType.PipelineInputAssemblyStateCreateInfo, topology = VkPrimitiveTopology.TriangleList };
             VkPipelineViewportStateCreateInfo viewportState = new() { sType = VkStructureType.PipelineViewportStateCreateInfo, viewportCount = 1, scissorCount = 1 };
-            VkPipelineRasterizationStateCreateInfo rasterizationState = new() { sType = VkStructureType.PipelineRasterizationStateCreateInfo, polygonMode = VkPolygonMode.Fill, lineWidth = 1.0f, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise };
+            VkPipelineRasterizationStateCreateInfo rasterizationState = new() { sType = VkStructureType.PipelineRasterizationStateCreateInfo, polygonMode = VkPolygonMode.Fill, lineWidth = 1.0f, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise }; // Re-enabled Back culling, adjust if needed
             VkPipelineMultisampleStateCreateInfo multisampleState = new() { sType = VkStructureType.PipelineMultisampleStateCreateInfo, rasterizationSamples = VkSampleCountFlags.Count1 };
-            VkPipelineDepthStencilStateCreateInfo depthStencilState = new() { sType = VkStructureType.PipelineDepthStencilStateCreateInfo };
-            VkPipelineColorBlendAttachmentState blendAttachmentState = new() { colorWriteMask = VkColorComponentFlags.All, blendEnable = false };
+            
+            VkPipelineDepthStencilStateCreateInfo depthStencilState = new() {
+                sType = VkStructureType.PipelineDepthStencilStateCreateInfo,
+                depthTestEnable = true,
+                depthWriteEnable = false,
+                depthCompareOp = VkCompareOp.Less,
+                depthBoundsTestEnable = false,
+                minDepthBounds = 0.0f,
+                maxDepthBounds = 1.0f,
+                stencilTestEnable = false
+            };
+
+            VkPipelineColorBlendAttachmentState blendAttachmentState = new() {
+                colorWriteMask = VkColorComponentFlags.All, 
+                blendEnable = true,
+                srcColorBlendFactor = VkBlendFactor.SrcAlpha,
+                dstColorBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
+                colorBlendOp = VkBlendOp.Add,
+                srcAlphaBlendFactor = VkBlendFactor.One,
+                dstAlphaBlendFactor = VkBlendFactor.Zero,
+                alphaBlendOp = VkBlendOp.Add,
+            };
             VkPipelineColorBlendStateCreateInfo colorBlendState = new() { sType = VkStructureType.PipelineColorBlendStateCreateInfo, attachmentCount = 1, pAttachments = &blendAttachmentState };
             VkDynamicState* dynamicStateEnables = stackalloc VkDynamicState[] { VkDynamicState.Viewport, VkDynamicState.Scissor };
             VkPipelineDynamicStateCreateInfo dynamicState = new() { sType = VkStructureType.PipelineDynamicStateCreateInfo, dynamicStateCount = 2, pDynamicStates = dynamicStateEnables };
@@ -66,9 +87,11 @@ public readonly unsafe struct Pipeline : IDisposable {
             {
                 sType = VkStructureType.PipelineRenderingCreateInfo,
                 colorAttachmentCount = 1,
-                pColorAttachmentFormats = &swapchainFormat
+                pColorAttachmentFormats = &swapchainFormat,
+                depthAttachmentFormat = depthFormat,
+                stencilAttachmentFormat = VkFormat.Undefined
             };
-
+            
             VkGraphicsPipelineCreateInfo pipelineCreateInfo = new()
             {
                 sType = VkStructureType.GraphicsPipelineCreateInfo,
@@ -93,8 +116,12 @@ public readonly unsafe struct Pipeline : IDisposable {
     }
 
     public void Dispose() {
-        vkDestroyPipeline(Device, Value, null);
-        vkDestroyPipelineLayout(Device, Layout, null);
+        if (Value != VkPipeline.Null) {
+            vkDestroyPipeline(Device, Value, null);
+        }
+        if (Layout != VkPipelineLayout.Null) {
+            vkDestroyPipelineLayout(Device, Layout, null);
+        }
     }
 
     public static implicit operator VkPipeline(Pipeline p) => p.Value;
