@@ -9,8 +9,12 @@ public unsafe struct Sampler : IDisposable {
     internal VkSampler Value;
     
     public Sampler(LogicalDevice logicalDevice, SamplerCreateParameters createInfo) {
+        Device = logicalDevice;
+        Value = VkSampler.Null;
+        
         VkSamplerCreateInfo samplerCreateInfo = new()
         {
+            sType =  VkStructureType.SamplerCreateInfo,
             magFilter = createInfo.MagFilter,
             minFilter = createInfo.MinFilter,
             mipmapMode = createInfo.MipmapMode,
@@ -34,7 +38,6 @@ public unsafe struct Sampler : IDisposable {
         }
 
         VkResult result = Vulkan.vkCreateSampler(Device, &samplerCreateInfo, null, out Value);
-        Device = logicalDevice;
     }
 
     public void Dispose() {

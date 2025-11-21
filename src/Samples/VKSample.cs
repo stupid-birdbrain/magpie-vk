@@ -5,11 +5,15 @@ using Magpie.Core;
 using Magpie.Utilities;
 using SDL3;
 using ShaderCompilation;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using StainedGlass;
-using Standard;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 using Buffer = Magpie.Core.Buffer;
+using Color = Standard.Color;
+using Image = Magpie.Image;
 
 namespace Samples;
     
@@ -35,7 +39,7 @@ internal sealed unsafe class VkSample {
 
     private Pipeline _pipeline;
     
-    private VertexBuffer<VertexPositionColor> _vertexBuffer;
+    private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
     
     private DescriptorSetLayout _descriptorSetLayout;
@@ -50,6 +54,11 @@ internal sealed unsafe class VkSample {
     private Vector3 _cameraFront = Vector3.Zero;
     private Vector3 _cameraUp = Vector3.UnitY;
     private float _cameraSpeed = 1.0f;
+    
+    private Image _textureImage;
+    private DeviceMemory _textureImageMemory;
+    private ImageView _textureImageView;
+    private Sampler _textureSampler;
 
     private Stopwatch _stopwatch;
     private int _frameCount;
@@ -99,6 +108,7 @@ internal sealed unsafe class VkSample {
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
             
         Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
+        CreateTextureImage("resources/hashbrown.png");
             
         VkUtf8ReadOnlyString entryPoint = "main"u8;
             
@@ -108,23 +118,33 @@ internal sealed unsafe class VkSample {
         var vertmodule = new ShaderModule(_vkDevice, vertShaderCode.ToArray());
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
             
-        VkVertexInputBindingDescription vertexInputBinding = new(VertexPositionColor.SizeInBytes);
+        VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
 
-        // Attribute location 0: Position
-        // Attribute location 1: Color
-        ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributs = stackalloc VkVertexInputAttributeDescription[2]
-        {
-            new(0, VkFormat.R32G32B32Sfloat, 0),
-            new(1, VkFormat.R32G32B32A32Sfloat, 12)
+        ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
+            new(
+                location: 0, 
+                binding: 0, 
+                format: Vector3.AsFormat(),
+                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Position))
+            ),
+            new(
+                location: 1,
+                binding: 0, 
+                format: Vector3.AsFormat(),
+                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Color))
+            ),
+            new(
+                location: 2,
+                binding: 0, 
+                format: Vector2.AsFormat(),
+                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.TexCoord))
+            )
         };
         
-        DescriptorSetLayoutBinding uboLayoutBinding = new(
-            0,
-            VkDescriptorType.UniformBuffer,
-            1,
-            VkShaderStageFlags.Vertex
-        );
-        _descriptorSetLayout = new(_vkDevice, new ReadOnlySpan<DescriptorSetLayoutBinding>(&uboLayoutBinding, 1));
+        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[2];
+        bindings[0] = new(0, VkDescriptorType.UniformBuffer, 1, VkShaderStageFlags.Vertex);
+        bindings[1] = new(1, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
+        _descriptorSetLayout = new(_vkDevice, bindings);
             
         _pipeline = new Pipeline(
             _vkDevice,
@@ -132,40 +152,41 @@ internal sealed unsafe class VkSample {
             vertShaderCode.ToArray(),
             fragShaderCode.ToArray(),
             vertexInputBinding,
-            vertexInputAttributs,
+            vertexInputAttributes,
             _descriptorSetLayout
         );
 
         Vulkan.vkDestroyShaderModule(_vkDevice, vertmodule);
         Vulkan.vkDestroyShaderModule(_vkDevice, fragmodule);
-            
-        ReadOnlySpan<VertexPositionColor> sourceVertexData =
+
+        ReadOnlySpan<VertexPositionColorTexture> sourceVertexData =
         [
-            new VertexPositionColor(new Vector3(-0.5f, -0.5f, 0.0f), new Vector4(1.0f, 0.0f, 0.5f, 1.0f)),
-            new VertexPositionColor(new Vector3(0.5f, -0.5f, 0.0f), new Vector4(0.0f, 1.0f, 0.3f, 1.0f)),
-            new VertexPositionColor(new Vector3(0.5f, 0.5f, 0.0f), new Vector4(0.0f, 0.3f, 1.0f, 1.0f)),
-            new VertexPositionColor(new Vector3(-0.5f, 0.5f, 0.0f), new Vector4(1.0f, 1.0f, 1.0f, 1.0f))
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.0f), new Vector3(1.0f, 0.0f, 0.0f), new Vector2(0.0f, 0.0f)),
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.0f), new Vector3(0.0f, 1.0f, 0.0f), new Vector2(1.0f, 0.0f)),
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.0f), new Vector3(0.0f, 0.0f, 1.0f), new Vector2(1.0f, 1.0f)),
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.0f), new Vector3(1.0f, 1.0f, 1.0f), new Vector2(0.0f, 1.0f))
         ];
         uint vertexBufferSize = (uint)(sourceVertexData.Length * VertexPositionColor.SizeInBytes);
 
-        ReadOnlySpan<uint> sourceIndexData = [0, 3, 2, 0, 2, 1];
+        ReadOnlySpan<uint> sourceIndexData = [0, 1, 2, 2, 3, 0];
         uint indexBufferSize = (uint)(sourceIndexData.Length * sizeof(uint));
 
         _vertexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, sourceVertexData);
         _indexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, MemoryMarshal.AsBytes(sourceIndexData));
         
         uint uboBufferSize = (uint)Marshal.SizeOf<UniformBufferObject>();
-
         _uniformBuffer = new Buffer(_vkDevice, uboBufferSize, VkBufferUsageFlags.UniformBuffer);
         _uniformBufferMemory = new DeviceMemory(_uniformBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
 
-        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
+        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[2];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.UniformBuffer, 1);
+        poolSizes[1] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
         _descriptorPool = new(_vkDevice, poolSizes, 1);
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
-        _descriptorSet.Update(_uniformBuffer, VkDescriptorType.UniformBuffer);
+        _descriptorSet.Update(_uniformBuffer, VkDescriptorType.UniformBuffer, 0);
+        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler, 1);
             
         while (!Quit) {
             Time.Start();
@@ -277,6 +298,49 @@ internal sealed unsafe class VkSample {
         Graphics.End();
     }
     
+    private void CreateTextureImage(string path) {
+        using Image<Rgba32> imageSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
+        imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
+
+        uint imageSize = (uint)(imageSharp.Width * imageSharp.Height * 4);
+        var pixelData = new byte[imageSize];
+        imageSharp.CopyPixelDataTo(pixelData);
+        ReadOnlySpan<byte> pixelSpan = pixelData;
+
+        using var stagingBuffer = new Buffer(_vkDevice, imageSize, VkBufferUsageFlags.TransferSrc);
+        using var stagingMemory = new DeviceMemory(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        stagingMemory.CopyFrom(pixelSpan);
+        
+        _textureImage = new Image(
+            _vkDevice,
+            (uint)imageSharp.Width, 
+            (uint)imageSharp.Height, 
+            1,
+            VkFormat.R8G8B8A8Unorm,
+            VkImageUsageFlags.TransferDst | VkImageUsageFlags.Sampled
+        );
+        
+        _textureImageMemory = new DeviceMemory(_textureImage, VkMemoryPropertyFlags.DeviceLocal);
+
+        {
+            using var fence = Graphics!.RequestFence(VkFenceCreateFlags.None);
+            var cmd = Graphics.AllocateCommandBuffer(true);
+            cmd.Begin();
+            
+            cmd.TransitionImageLayout(_textureImage, VkImageLayout.Undefined, VkImageLayout.TransferDstOptimal);
+            cmd.CopyBufferToImage(stagingBuffer, _textureImage, (uint)imageSharp.Width, (uint)imageSharp.Height, 0, 0);
+            cmd.TransitionImageLayout(_textureImage, VkImageLayout.TransferDstOptimal, VkImageLayout.ShaderReadOnlyOptimal);
+            
+            cmd.End();
+            Graphics.Submit(cmd, fence);
+            fence.Wait();
+            cmd.Dispose();
+        }
+
+        _textureImageView = new ImageView(_textureImage);
+        _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Linear, VkSamplerAddressMode.Repeat));
+    }
+    
     private void UpdateUniformBuffer(float time) {
         Matrix4x4 model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
         Matrix4x4 view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
@@ -306,6 +370,11 @@ internal sealed unsafe class VkSample {
 
     private void Dispose() {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
+        
+        _textureSampler.Dispose();
+        _textureImageView.Dispose();
+        _textureImage.Dispose();
+        _textureImageMemory.Dispose();
             
         _pipeline.Dispose();
 

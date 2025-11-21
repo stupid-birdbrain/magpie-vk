@@ -32,6 +32,26 @@ public unsafe struct DescriptorSet : IDisposable {
         Vulkan.vkUpdateDescriptorSets(Pool.Device, 1, descriptorWrite.GetPointer(), 0, null);
     }
     
+    public readonly void Update(ImageView imageView, Sampler sampler, VkDescriptorType descriptorType, uint binding = 0) {
+        VkDescriptorImageInfo imageInfo = new();
+        imageInfo.imageView = imageView.Value;
+        imageInfo.imageLayout = VkImageLayout.ShaderReadOnlyOptimal;
+        imageInfo.sampler = sampler.Value;
+
+        Span<VkWriteDescriptorSet> descriptorWrite = stackalloc VkWriteDescriptorSet[1];
+        descriptorWrite[0] = new()
+        {
+            dstSet = Value,
+            dstBinding = binding,
+            dstArrayElement = 0,
+            descriptorType = descriptorType,
+            descriptorCount = 1,
+            pImageInfo = &imageInfo
+        };
+
+        Vulkan.vkUpdateDescriptorSets(Pool.Device, 1, descriptorWrite.GetPointer(), 0, null);
+    }
+    
     public void Dispose() {
         Vulkan.vkFreeDescriptorSets(Pool.Device, Pool.Value, Value);
         Value = default;
