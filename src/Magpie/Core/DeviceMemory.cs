@@ -31,6 +31,20 @@ public unsafe struct DeviceMemory : IDisposable {
         vkBindBufferMemory(Device, buffer, Value, 0).CheckResult("failed to bind memory to buffer!");
     }
     
+    public DeviceMemory(Image image, VkMemoryPropertyFlags properties) {
+        Device = image.Device;
+        vkGetImageMemoryRequirements(Device, image, out VkMemoryRequirements memoryRequirements);
+        Size = memoryRequirements.size;
+
+        VkMemoryAllocateInfo allocInfo = new();
+        allocInfo.allocationSize = memoryRequirements.size;
+        allocInfo.memoryTypeIndex = Device.GetMemoryTypeIndex(memoryRequirements.memoryTypeBits, properties);
+
+        vkAllocateMemory(Device, &allocInfo, null, out Value).CheckResult("failed to allocate memory for image!");
+        
+        vkBindImageMemory(Device, image, Value, 0).CheckResult("failed to bind memory to image!");
+    }
+    
     public readonly Span<T> Map<T>(int length) where T : unmanaged {
         void* byteData;
         vkMapMemory(Device, Value, 0, Size, 0, &byteData).CheckResult("failed to map memory!");

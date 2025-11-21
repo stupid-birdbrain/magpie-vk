@@ -64,5 +64,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>
+    
+
+    <ItemGroup>
+      <Folder Include="resources\base_textured\" />
+    </ItemGroup>
 
 </Project>
