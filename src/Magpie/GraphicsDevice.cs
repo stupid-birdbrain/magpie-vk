@@ -1,5 +1,6 @@
 using Magpie.Core;
 using Magpie.Utilities;
+using SDL3;
 using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
@@ -25,6 +26,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private Semaphore[] _renderFinishedSemaphores;
     private readonly Fence[] _inFlightFences;
     private VkFence[] _imagesInFlight = null!;
+    
+    private bool _frameBufferResized = false;
 
     private readonly FencePool _fences;
 
@@ -37,6 +40,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     public CmdPool GraphicsCommandPool => _graphicsCmdPool;
     public Queue GraphicsQueue => _graphicsQueue;
+    
+    public int CurrentFrameIndex => _currentFrame;
 
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
         Instance = instance;
@@ -71,25 +76,16 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _fences = new FencePool(_logicalDevice);
     }
     
+    public void NotifyResize() {
+        _frameBufferResized = true;
+    }
+    
     public FenceLease RequestFence(VkFenceCreateFlags flags) => _fences.Rent(flags);
     
     /// <summary>
     ///     Attempts to begin a new rendering frame and clears the backbuffer.
     /// </summary>
     public bool Begin(VkClearValue clearColor) {
-        var currentExtent = _surface.ChooseSwapExtent(_physicalDevice);
-
-        if (currentExtent.width == 0 || currentExtent.height == 0) {
-            _isFrameStarted = false;
-            return false;
-        }
-
-        if (currentExtent.width != _mainSwapchain.Width || currentExtent.height != _mainSwapchain.Height) {
-            RecreateSwapchain();
-            _isFrameStarted = false;
-            return false;
-        }
-
         if (_isFrameStarted) {
             throw new InvalidOperationException("cannot call Begin twice in a frame! Call End() first.");
         }
@@ -208,7 +204,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
 
         var result = _presentQueue.TryPresent(currentRenderFinishedSemaphore, _mainSwapchain, _imageIndex);
 
-        if (result == VkResult.ErrorOutOfDateKHR || result == VkResult.SuboptimalKHR) {
+        if (result == VkResult.ErrorOutOfDateKHR || result == VkResult.SuboptimalKHR || _frameBufferResized) {
+            _frameBufferResized = false;
             RecreateSwapchain();
         }
         else if (result != VkResult.Success) {
@@ -238,6 +235,13 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     }
     
     public void RecreateSwapchain() {
+        var extent = _surface.ChooseSwapExtent(_physicalDevice);
+        
+        while (extent.width == 0 || extent.height == 0) {
+            SDL.WaitEvent(out _);
+            extent = _surface.ChooseSwapExtent(_physicalDevice);
+        }
+        
         vkDeviceWaitIdle(_logicalDevice);
         if (_renderFinishedSemaphores != null) {
             foreach(var semaphore in _renderFinishedSemaphores) {

@@ -67,7 +67,7 @@ internal sealed unsafe class VkSample {
         _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events);
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
             
-        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
+        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable | SDL.WindowFlags.Transparent);
         _vkSurface = new(_vkInstance, _windowHandle.CreateVulkanSurface(_vkInstance));
         _windowHandle.SetRelativeMouseMode(true);
         
@@ -201,6 +201,9 @@ internal sealed unsafe class VkSample {
             case (uint)SDL.EventType.MouseMotion:
                 HandleMouseMotion((int)@event.Motion.XRel, (int)@event.Motion.YRel);
                 break;
+            case (uint)SDL.EventType.WindowMinimized:
+                Graphics?.NotifyResize();
+                break;
         }
     }
     
@@ -275,7 +278,7 @@ internal sealed unsafe class VkSample {
     }
     
     private void UpdateUniformBuffer(float time) {
-        Matrix4x4 model = Matrix4x4.CreateRotationZ(time * 0.5f);
+        Matrix4x4 model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
         Matrix4x4 view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
