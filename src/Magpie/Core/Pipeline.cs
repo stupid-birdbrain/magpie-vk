@@ -19,7 +19,8 @@ public readonly unsafe struct Pipeline : IDisposable {
         ReadOnlySpan<byte> fragShaderCode,
         VkVertexInputBindingDescription vertexBinding,
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexAttributes,
-        DescriptorSetLayout descriptorSetLayout
+        DescriptorSetLayout descriptorSetLayout,
+        VkPushConstantRange pushConstantRange
     )
     {
         Device = device;
@@ -33,7 +34,9 @@ public readonly unsafe struct Pipeline : IDisposable {
         {
             sType = VkStructureType.PipelineLayoutCreateInfo,
             setLayoutCount = 1,
-            pSetLayouts = &descLayout
+            pSetLayouts = &descLayout,
+            pushConstantRangeCount = 1,
+            pPushConstantRanges = &pushConstantRange
         };
         vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, null, out Layout).CheckResult();
 
@@ -55,13 +58,25 @@ public readonly unsafe struct Pipeline : IDisposable {
 
             VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = new() { sType = VkStructureType.PipelineInputAssemblyStateCreateInfo, topology = VkPrimitiveTopology.TriangleList };
             VkPipelineViewportStateCreateInfo viewportState = new() { sType = VkStructureType.PipelineViewportStateCreateInfo, viewportCount = 1, scissorCount = 1 };
-            VkPipelineRasterizationStateCreateInfo rasterizationState = new() { sType = VkStructureType.PipelineRasterizationStateCreateInfo, polygonMode = VkPolygonMode.Fill, lineWidth = 1.0f, cullMode = VkCullModeFlags.None, frontFace = VkFrontFace.CounterClockwise }; // Re-enabled Back culling, adjust if needed
-            VkPipelineMultisampleStateCreateInfo multisampleState = new() { sType = VkStructureType.PipelineMultisampleStateCreateInfo, rasterizationSamples = VkSampleCountFlags.Count1 };
-            
-            VkPipelineDepthStencilStateCreateInfo depthStencilState = new() {
+
+            VkPipelineRasterizationStateCreateInfo rasterizationState = new()
+            {
+                sType = VkStructureType.PipelineRasterizationStateCreateInfo, 
+                polygonMode = VkPolygonMode.Fill, 
+                lineWidth = 1.0f, 
+                cullMode = VkCullModeFlags.None, 
+                frontFace = VkFrontFace.CounterClockwise
+            };
+            VkPipelineMultisampleStateCreateInfo multisampleState = new()
+            {
+                sType = VkStructureType.PipelineMultisampleStateCreateInfo, rasterizationSamples = VkSampleCountFlags.Count1
+            };
+
+            VkPipelineDepthStencilStateCreateInfo depthStencilState = new()
+            {
                 sType = VkStructureType.PipelineDepthStencilStateCreateInfo,
                 depthTestEnable = true,
-                depthWriteEnable = false,
+                depthWriteEnable = true,
                 depthCompareOp = VkCompareOp.Less,
                 depthBoundsTestEnable = false,
                 minDepthBounds = 0.0f,
@@ -70,14 +85,14 @@ public readonly unsafe struct Pipeline : IDisposable {
             };
 
             VkPipelineColorBlendAttachmentState blendAttachmentState = new() {
-                colorWriteMask = VkColorComponentFlags.All, 
+                colorWriteMask = VkColorComponentFlags.All,
                 blendEnable = true,
                 srcColorBlendFactor = VkBlendFactor.SrcAlpha,
                 dstColorBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
                 colorBlendOp = VkBlendOp.Add,
                 srcAlphaBlendFactor = VkBlendFactor.One,
-                dstAlphaBlendFactor = VkBlendFactor.Zero,
-                alphaBlendOp = VkBlendOp.Add,
+                dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcAlpha,
+                alphaBlendOp = VkBlendOp.Add
             };
             VkPipelineColorBlendStateCreateInfo colorBlendState = new() { sType = VkStructureType.PipelineColorBlendStateCreateInfo, attachmentCount = 1, pAttachments = &blendAttachmentState };
             VkDynamicState* dynamicStateEnables = stackalloc VkDynamicState[] { VkDynamicState.Viewport, VkDynamicState.Scissor };
@@ -91,7 +106,7 @@ public readonly unsafe struct Pipeline : IDisposable {
                 depthAttachmentFormat = depthFormat,
                 stencilAttachmentFormat = VkFormat.Undefined
             };
-            
+
             VkGraphicsPipelineCreateInfo pipelineCreateInfo = new()
             {
                 sType = VkStructureType.GraphicsPipelineCreateInfo,

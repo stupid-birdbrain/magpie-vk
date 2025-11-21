@@ -9,17 +9,14 @@ public static class Vec2Ext {
         public static VkFormat AsFormat() => VkFormat.R32G32Sfloat;
     }
 }
-
 public static class Vec3Ext {
     extension(Vector3 vec) {
         public static VkFormat AsFormat() => VkFormat.R32G32B32Sfloat;
     }
 }
-
 public static class Vec4Ext {
     extension(Vector4 vec) {
         public static VkFormat AsFormat() => VkFormat.R32G32B32A32Sfloat;
     }
-
 }
 #endif

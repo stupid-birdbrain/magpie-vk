@@ -31,7 +31,8 @@ public unsafe struct LogicalDevice : IDisposable {
         }
 
         VkPhysicalDeviceFeatures features = new();
-        features.samplerAnisotropy = true; 
+        features.samplerAnisotropy = true;
+        features.fillModeNonSolid = true;
 
         VkStringArray deviceExtensionNames = default;
         if (deviceExtensions.Length > 0) {

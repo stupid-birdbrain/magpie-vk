@@ -17,9 +17,9 @@ using Color = Standard.Color;
 using Image = Magpie.Image;
 
 namespace Samples;
-    
+
 [StructLayout(LayoutKind.Sequential)]
-public struct UniformBufferObject {
+public struct PushConstantMatrices {
     public Matrix4x4 Model;
     public Matrix4x4 View;
     public Matrix4x4 Proj;
@@ -34,28 +34,26 @@ internal sealed unsafe class VkSample {
     private VulkanInstance _vkInstance;
     private Surface _vkSurface;
     private LogicalDevice _vkDevice;
-        
+
     private SdlWindow _windowHandle;
     private ShaderCompiler? _compiler;
 
     private Pipeline _pipeline;
-    
+
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
-    
+
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
     private DescriptorSet _descriptorSet;
-    private Buffer _uniformBuffer;
-    private DeviceMemory _uniformBufferMemory;
-    
+
     private Vector3 _cameraPosition = new Vector3(2.0f, 2.0f, 2.0f);
     private float _cameraYaw = MathF.PI * 1.25f;
     private float _cameraPitch = -MathF.PI * 0.2f;
     private Vector3 _cameraFront = Vector3.Zero;
     private Vector3 _cameraUp = Vector3.UnitY;
     private float _cameraSpeed = 1.0f;
-    
+
     private Image _textureImage;
     private DeviceMemory _textureImageMemory;
     private ImageView _textureImageView;
@@ -64,27 +62,27 @@ internal sealed unsafe class VkSample {
     private Stopwatch _stopwatch;
     private int _frameCount;
     private double _elapsedTime;
-    
+
     public void Run(string[] args) {
         Initialize(args);
         Dispose();
     }
-        
-    public void Initialize(string[] args) { 
+
+    public void Initialize(string[] args) {
         _compiler = new ShaderCompiler();
-            
+
         _vkContext = new("vulkan");
         _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events);
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
-            
-        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
+
+        _windowHandle = new("magpi", 1200, 800, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
         _vkSurface = new(_vkInstance, _windowHandle.CreateVulkanSurface(_vkInstance));
         _windowHandle.SetRelativeMouseMode(true);
-        
+
         _stopwatch = Stopwatch.StartNew();
         _frameCount = 0;
         _elapsedTime = 0.0;
-            
+
         string[] requiredDeviceExtensions = [
             new VkUtf8String(Vulkan.VK_KHR_SWAPCHAIN_EXTENSION_NAME.GetPointer()).ToString()!,
             new VkUtf8String(Vulkan.VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME.GetPointer()).ToString()!,
@@ -98,8 +96,8 @@ internal sealed unsafe class VkSample {
         PhysicalDevice bestDevice;
         if (!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out bestDevice)) {
             throw new InvalidOperationException("no valid physical device found");
-        }   
-            
+        }
+
         uint graphicsQueueFamilyIndex;
         if (!bestDevice.TryGetGraphicsQueueFamily(out graphicsQueueFamilyIndex)) {
             throw new Exception("selected physical device does not have a graphics queue family");
@@ -107,46 +105,51 @@ internal sealed unsafe class VkSample {
 
         _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], requiredDeviceExtensions);
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
-            
+
         Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
         CreateTextureImage("resources/hashbrown.png");
-            
+
         VkUtf8ReadOnlyString entryPoint = "main"u8;
-            
+
         var vertShaderCode = _compiler.CompileShader(@"resources/base/base.vert", ShaderKind.Vertex, true);
         var fragShaderCode = _compiler.CompileShader(@"resources/base/base.frag", ShaderKind.Fragment, true);
 
         var vertmodule = new ShaderModule(_vkDevice, vertShaderCode.ToArray());
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
-            
+
         VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
 
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
             new(
-                location: 0, 
-                binding: 0, 
+                location: 0,
+                binding: 0,
                 format: Vector3.AsFormat(),
                 offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Position))
             ),
             new(
                 location: 1,
-                binding: 0, 
+                binding: 0,
                 format: Vector3.AsFormat(),
                 offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Color))
             ),
             new(
                 location: 2,
-                binding: 0, 
+                binding: 0,
                 format: Vector2.AsFormat(),
                 offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.TexCoord))
             )
         };
-        
-        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[2];
-        bindings[0] = new(0, VkDescriptorType.UniformBuffer, 1, VkShaderStageFlags.Vertex);
-        bindings[1] = new(1, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
+
+        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[1];
+        bindings[0] = new(0, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
         _descriptorSetLayout = new(_vkDevice, bindings);
-            
+
+        VkPushConstantRange pushConstantRange = new VkPushConstantRange {
+            stageFlags = VkShaderStageFlags.Vertex,
+            offset = 0,
+            size = (uint)Marshal.SizeOf<PushConstantMatrices>()
+        };
+
         _pipeline = new Pipeline(
             _vkDevice,
             Graphics.MainSwapchain.Format,
@@ -155,11 +158,13 @@ internal sealed unsafe class VkSample {
             fragShaderCode.ToArray(),
             vertexInputBinding,
             vertexInputAttributes,
-            _descriptorSetLayout
+            _descriptorSetLayout,
+            pushConstantRange
         );
 
         Vulkan.vkDestroyShaderModule(_vkDevice, vertmodule);
         Vulkan.vkDestroyShaderModule(_vkDevice, fragmodule);
+
 
         ReadOnlySpan<VertexPositionColorTexture> sourceVertexData =
         [
@@ -201,62 +206,52 @@ internal sealed unsafe class VkSample {
         ];
         ReadOnlySpan<uint> sourceIndexData =
         [
-            // Front face (0-3)
             0, 1, 2, 2, 3, 0,
-            // Back face (4-7)
             4, 5, 6, 6, 7, 4,
-            // Top face (8-11)
             8, 9, 10, 10, 11, 8,
-            // Bottom face (12-15)
             12, 13, 14, 14, 15, 12,
-            // Right face (16-19)
             16, 17, 18, 18, 19, 16,
-            // Left face (20-23)
             20, 21, 22, 22, 23, 20
         ];
-        
-        uint vertexBufferSize = (uint)(sourceVertexData.Length * VertexPositionColor.SizeInBytes);
+
+        uint vertexBufferSize = (uint)(sourceVertexData.Length * VertexPositionColorTexture.SizeInBytes);
         uint indexBufferSize = (uint)(sourceIndexData.Length * sizeof(uint));
 
         _vertexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, sourceVertexData);
         _indexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, MemoryMarshal.AsBytes(sourceIndexData));
-        
-        uint uboBufferSize = (uint)Marshal.SizeOf<UniformBufferObject>();
-        _uniformBuffer = new Buffer(_vkDevice, uboBufferSize, VkBufferUsageFlags.UniformBuffer);
-        _uniformBufferMemory = new DeviceMemory(_uniformBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
 
-        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[2];
-        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.UniformBuffer, 1);
-        poolSizes[1] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
+
+        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
+        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
         _descriptorPool = new(_vkDevice, poolSizes, 1);
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
-        _descriptorSet.Update(_uniformBuffer, VkDescriptorType.UniformBuffer, 0);
-        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler, 1);
-            
+        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler, 0);
+
         while (!Quit) {
             Time.Start();
             while (SDL.PollEvent(out var @event)) {
                 HandleEvent(@event);
             }
-            HandleContinuousInput(); 
-            
+            HandleContinuousInput();
+
             Time.Update();
             Draw();
             Time.Stop();
-            
+
             _frameCount++;
             _elapsedTime = _stopwatch.Elapsed.TotalSeconds; if(_elapsedTime >= 1.0) {
                 double fps = _frameCount / _elapsedTime;
-                _windowHandle.Title = $"FPS: {fps}";
+                double averageFrametimeMs = (_elapsedTime / _frameCount) * 1000.0;
+                _windowHandle.Title = $"FPS: {Math.Round(fps)}, {averageFrametimeMs:F2}ms";
                 _frameCount = 0;
                 _elapsedTime = 0.0;
                 _stopwatch.Restart();
             }
         }
     }
-    
+
     private void HandleEvent(SDL.Event @event) {
         switch (@event.Type) {
             case (uint)SDL.EventType.Quit:
@@ -274,7 +269,7 @@ internal sealed unsafe class VkSample {
                 break;
         }
     }
-    
+
     private void HandleMouseMotion(int xRel, int yRel) {
         _cameraYaw += xRel * 0.005f;
         _cameraPitch -= yRel * 0.005f;
@@ -301,16 +296,16 @@ internal sealed unsafe class VkSample {
             _cameraPosition -= flatCameraFront * moveSpeed;
         }
         if (keyboardState[(int)SDL.Scancode.A]) {
-            _cameraPosition -= right * moveSpeed; 
+            _cameraPosition -= right * moveSpeed;
         }
         if (keyboardState[(int)SDL.Scancode.D]) {
-            _cameraPosition += right * moveSpeed; 
+            _cameraPosition += right * moveSpeed;
         }
         if (keyboardState[(int)SDL.Scancode.Q]) {
-            _cameraPosition += _cameraUp * moveSpeed; 
+            _cameraPosition += _cameraUp * moveSpeed;
         }
         if (keyboardState[(int)SDL.Scancode.E]) {
-            _cameraPosition -= _cameraUp * moveSpeed; 
+            _cameraPosition -= _cameraUp * moveSpeed;
         }
     }
 
@@ -324,27 +319,27 @@ internal sealed unsafe class VkSample {
         var color = new Color(r, g, b);
 
         if(!Graphics.Begin(Colors.SlateGray)) return;
-        
-        UpdateUniformBuffer(time);
-            
+
+        UpdatePushConstants(time);
+
         var cmd = Graphics.RequestCurrentCommandBuffer();
-            
+
         Vulkan.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _pipeline);
         fixed (VkDescriptorSet* pDescriptorSet = &_descriptorSet.Value) {
             Vulkan.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipeline.Layout, 0, 1, pDescriptorSet, 0, null);
         }
-            
+
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         cmd.SetViewport(new(0, 0, extent.X, extent.Y));
         cmd.SetScissor(new(0, 0, (uint)extent.X, (uint)extent.Y));
-            
+
         Vulkan.vkCmdBindVertexBuffer(cmd, 0, _vertexBuffer);
         Vulkan.vkCmdBindIndexBuffer(cmd, _indexBuffer, 0, VkIndexType.Uint32);
         Vulkan.vkCmdDrawIndexed(cmd, _indexBuffer.IndexCount, 1, 0, 0, 0);
 
         Graphics.End();
     }
-    
+
     private void CreateTextureImage(string path) {
         using Image<Rgba32> imageSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
         imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
@@ -357,27 +352,27 @@ internal sealed unsafe class VkSample {
         using var stagingBuffer = new Buffer(_vkDevice, imageSize, VkBufferUsageFlags.TransferSrc);
         using var stagingMemory = new DeviceMemory(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         stagingMemory.CopyFrom(pixelSpan);
-        
+
         _textureImage = new Image(
             _vkDevice,
-            (uint)imageSharp.Width, 
-            (uint)imageSharp.Height, 
+            (uint)imageSharp.Width,
+            (uint)imageSharp.Height,
             1,
             VkFormat.R8G8B8A8Unorm,
             VkImageUsageFlags.TransferDst | VkImageUsageFlags.Sampled
         );
-        
+
         _textureImageMemory = new DeviceMemory(_textureImage, VkMemoryPropertyFlags.DeviceLocal);
 
         {
             using var fence = Graphics!.RequestFence(VkFenceCreateFlags.None);
             var cmd = Graphics.AllocateCommandBuffer(true);
             cmd.Begin();
-            
+
             cmd.TransitionImageLayout(_textureImage, VkImageLayout.Undefined, VkImageLayout.TransferDstOptimal);
             cmd.CopyBufferToImage(stagingBuffer, _textureImage, (uint)imageSharp.Width, (uint)imageSharp.Height, 0, 0);
             cmd.TransitionImageLayout(_textureImage, VkImageLayout.TransferDstOptimal, VkImageLayout.ShaderReadOnlyOptimal);
-            
+
             cmd.End();
             Graphics.Submit(cmd, fence);
             fence.Wait();
@@ -387,54 +382,60 @@ internal sealed unsafe class VkSample {
         _textureImageView = new ImageView(_textureImage);
         _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
     }
-    
-    private void UpdateUniformBuffer(float time) {
-        Matrix4x4 model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
+
+    private void UpdatePushConstants(float time) {
+        Matrix4x4 scaleMatrix = Matrix4x4.CreateScale(15);
+        Matrix4x4 model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f) * scaleMatrix;
         Matrix4x4 view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         float aspectRatio = extent.X / extent.Y;
         Matrix4x4 proj = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 4.0f, 
+            MathF.PI / 1.1f,
             aspectRatio,
-            0.1f, 
-            100.0f 
+            0.1f,
+            100.0f
         );
 
-        proj.M22 *= -1; 
+        proj.M22 *= -1;
 
-        UniformBufferObject ubo = new()
+        PushConstantMatrices pc = new()
         {
             Model = model,
             View = view,
             Proj = proj
         };
 
-        Span<UniformBufferObject> mappedUbo = _uniformBufferMemory.Map<UniformBufferObject>(1);
-        mappedUbo[0] = ubo;
-        _uniformBufferMemory.Unmap();
+        var cmd = Graphics!.RequestCurrentCommandBuffer();
+        Vulkan.vkCmdPushConstants(
+            cmd,
+            _pipeline.Layout,
+            VkShaderStageFlags.Vertex,
+            0,
+            (uint)Marshal.SizeOf<PushConstantMatrices>(),
+            &pc
+        );
     }
+    
 
     private void Dispose() {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
-        
+
         _textureSampler.Dispose();
         _textureImageView.Dispose();
         _textureImage.Dispose();
         _textureImageMemory.Dispose();
-            
+
         _pipeline.Dispose();
 
-        _vertexBuffer.Dispose();       
-        _indexBuffer.Dispose();       
-        
-        _uniformBuffer.Dispose();
-        _uniformBufferMemory.Dispose();
+        _vertexBuffer.Dispose();
+        _indexBuffer.Dispose();
+
         _descriptorPool.Dispose();
         _descriptorSetLayout.Dispose();
-            
+
         Graphics!.Dispose();
-            
+
         _vkDevice.Dispose();
         _vkInstance.Dispose();
         _vkContext?.Dispose();
