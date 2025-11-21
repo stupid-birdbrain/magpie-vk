@@ -40,6 +40,65 @@ public unsafe struct CmdBuffer : IDisposable {
         vkCmdSetScissor(Value, 0, 1, &rectValue);
     }
     
+    public void TransitionImageLayout(Image image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspects = VkImageAspectFlags.Color, uint layerCount = 1) {
+        VkImageMemoryBarrier barrier = new()
+        {
+            sType = VkStructureType.ImageMemoryBarrier,
+            oldLayout = oldLayout,
+            newLayout = newLayout,
+            srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            image = image,
+            subresourceRange = new VkImageSubresourceRange(aspects, 0, 1, 0, layerCount)
+        };
+
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+
+        if (oldLayout == VkImageLayout.Undefined) {
+            if (newLayout == VkImageLayout.TransferDstOptimal) {
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VkAccessFlags.TransferWrite;
+                sourceStage = VkPipelineStageFlags.TopOfPipe;
+                destinationStage = VkPipelineStageFlags.Transfer;
+            }
+            else if (newLayout == VkImageLayout.DepthStencilAttachmentOptimal) {
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VkAccessFlags.DepthStencilAttachmentWrite;
+                sourceStage = VkPipelineStageFlags.TopOfPipe;
+                destinationStage = VkPipelineStageFlags.EarlyFragmentTests;
+            }
+            else if (newLayout == VkImageLayout.ColorAttachmentOptimal) {
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VkAccessFlags.ColorAttachmentWrite;
+                sourceStage = VkPipelineStageFlags.TopOfPipe;
+                destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
+            }
+            else
+            {
+                throw new InvalidOperationException($"unsupported layout transition! {oldLayout} -> {newLayout}");
+            }
+        }
+        else if (oldLayout == VkImageLayout.TransferDstOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = VkAccessFlags.TransferWrite;
+            barrier.dstAccessMask = VkAccessFlags.ShaderRead;
+            sourceStage = VkPipelineStageFlags.Transfer;
+            destinationStage = VkPipelineStageFlags.FragmentShader;
+        }
+        else if (oldLayout == VkImageLayout.ColorAttachmentOptimal && newLayout == VkImageLayout.PresentSrcKHR) {
+            barrier.srcAccessMask = VkAccessFlags.ColorAttachmentWrite;
+            barrier.dstAccessMask = 0;
+            sourceStage = VkPipelineStageFlags.ColorAttachmentOutput;
+            destinationStage = VkPipelineStageFlags.BottomOfPipe;
+        }
+        else {
+            throw new InvalidOperationException($"unsupported layout transition! {oldLayout} -> {newLayout}");
+        }
+
+        vkCmdPipelineBarrier(Value, sourceStage, destinationStage, 0, 0, null, 0, null, 1, &barrier);
+    }
+
+    
     public void Dispose() {
         if (Value != VkCommandBuffer.Null) {
             fixed(VkCommandBuffer* ptr = &Value)

@@ -139,8 +139,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         currentCmdBuffer.Reset();
         currentCmdBuffer.Begin(flags: VkCommandBufferUsageFlags.OneTimeSubmit);
 
-        TransitionImageLayout(currentCmdBuffer, _mainSwapchain.Images[_imageIndex], VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
-
+        Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
+        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
         VkRenderingAttachmentInfo colorAttachment = new()
         {
             sType = VkStructureType.RenderingAttachmentInfo,
@@ -191,12 +191,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
 
         vkCmdEndRendering(currentCmdBuffer);
 
-        TransitionImageLayout(
-            currentCmdBuffer,
-            _mainSwapchain.Images[_imageIndex],
-            VkImageLayout.ColorAttachmentOptimal,
-            VkImageLayout.PresentSrcKHR
-        );
+        Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
+        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.ColorAttachmentOptimal, VkImageLayout.PresentSrcKHR);
 
         currentCmdBuffer.End();
 
