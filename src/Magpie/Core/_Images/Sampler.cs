@@ -3,7 +3,7 @@ using Vortice.Vulkan;
 
 namespace Magpie;
 
-public unsafe struct Sampler {
+public unsafe struct Sampler : IDisposable {
     public LogicalDevice Device;
 
     internal VkSampler Value;
@@ -35,6 +35,13 @@ public unsafe struct Sampler {
 
         VkResult result = Vulkan.vkCreateSampler(Device, &samplerCreateInfo, null, out Value);
         Device = logicalDevice;
+    }
+
+    public void Dispose() {
+        if (Value != VkSampler.Null) {
+            Vulkan.vkDestroySampler(Device, Value, null);
+            Value = VkSampler.Null;
+        }
     }
 }
 
