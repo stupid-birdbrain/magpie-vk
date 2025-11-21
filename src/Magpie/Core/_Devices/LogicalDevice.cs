@@ -37,7 +37,6 @@ public unsafe struct LogicalDevice : IDisposable {
         if (deviceExtensions.Length > 0) {
             deviceExtensionNames = new VkStringArray(deviceExtensions.ToArray());
         }
-
         
         VkPhysicalDeviceVulkan13Features deviceFeatures2 = new()
         {
@@ -81,6 +80,28 @@ public unsafe struct LogicalDevice : IDisposable {
         }
 
         throw new Exception("Could not find a suitable memory type!");
+    }
+    
+    
+    public readonly VkFormat GetDepthFormat() {
+        Span<VkFormat> candidates = [VkFormat.D32Sfloat, VkFormat.D32SfloatS8Uint, VkFormat.D24UnormS8Uint];
+        return GetSupportedFormat(candidates, VkImageTiling.Optimal, VkFormatFeatureFlags.DepthStencilAttachment);
+    }
+    
+    public readonly VkFormat GetSupportedFormat(ReadOnlySpan<VkFormat> candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
+        foreach (VkFormat format in candidates) {
+            VkFormatProperties properties;
+            Vulkan.vkGetPhysicalDeviceFormatProperties(PhysicalDevice.Value, format, &properties);
+
+            if (tiling == VkImageTiling.Linear && (properties.linearTilingFeatures & features) == features) {
+                return format;
+            }
+            else if (tiling == VkImageTiling.Optimal && (properties.optimalTilingFeatures & features) == features) {
+                return format;
+            }
+        }
+
+        throw new InvalidOperationException("Failed to find supported format");
     }
         
     public void Dispose() {
