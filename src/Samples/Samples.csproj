@@ -36,10 +36,6 @@
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
         
-      <None Update="resources/hashbrown.jpg">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
-        
       <None Update="resources\hashbrown.png">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>

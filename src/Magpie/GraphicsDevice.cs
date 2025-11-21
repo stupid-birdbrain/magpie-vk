@@ -4,8 +4,9 @@ using SDL3;
 using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
+using Semaphore = Magpie.Core.Semaphore;
 
-namespace Magpie.Core;
+namespace Magpie;
 
 public sealed unsafe class GraphicsDevice : IDisposable {
     private const int max_frames_in_flight = 2;
@@ -26,6 +27,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private Semaphore[] _renderFinishedSemaphores;
     private readonly Fence[] _inFlightFences;
     private VkFence[] _imagesInFlight = null!;
+    private DepthImage _depthImage;
     
     private bool _frameBufferResized = false;
 
@@ -42,6 +44,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     public Queue GraphicsQueue => _graphicsQueue;
     
     public int CurrentFrameIndex => _currentFrame;
+    public DepthImage DepthImage => _depthImage;
 
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
         Instance = instance;
@@ -74,6 +77,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         }
 
         _fences = new FencePool(_logicalDevice);
+        
+        CreateDepthResources();
     }
     
     public void NotifyResize() {
@@ -140,7 +145,9 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         currentCmdBuffer.Begin(flags: VkCommandBufferUsageFlags.OneTimeSubmit);
 
         Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
-        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal);
+        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal, aspects: VkImageAspectFlags.Color);
+        currentCmdBuffer.TransitionImageLayout(_depthImage.Image, VkImageLayout.Undefined, VkImageLayout.DepthStencilAttachmentOptimal, aspects: VkImageAspectFlags.Depth);
+        
         VkRenderingAttachmentInfo colorAttachment = new()
         {
             sType = VkStructureType.RenderingAttachmentInfo,
@@ -150,15 +157,27 @@ public sealed unsafe class GraphicsDevice : IDisposable {
             storeOp = VkAttachmentStoreOp.Store,
             clearValue = clearColor
         };
+        
+        VkClearValue depthClearValue = new VkClearValue { depthStencil = new VkClearDepthStencilValue(1.0f, 0) };
+        VkRenderingAttachmentInfo depthAttachment = new()
+        {
+            sType = VkStructureType.RenderingAttachmentInfo,
+            imageView = _depthImage.ImageView.Value,
+            imageLayout = VkImageLayout.DepthStencilAttachmentOptimal,
+            loadOp = VkAttachmentLoadOp.Clear,
+            storeOp = VkAttachmentStoreOp.DontCare,
+            clearValue = depthClearValue
+        };
 
         VkRenderingInfo renderingInfo = new() {
             sType = VkStructureType.RenderingInfo,
             renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
             layerCount = 1,
             colorAttachmentCount = 1,
-            pColorAttachments = &colorAttachment
+            pColorAttachments = &colorAttachment,
+            pDepthAttachment = &depthAttachment,
+            pStencilAttachment = null
         };
-
         vkCmdBeginRendering(currentCmdBuffer, &renderingInfo);
         return true;
     }
@@ -192,8 +211,9 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         vkCmdEndRendering(currentCmdBuffer);
 
         Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
-        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.ColorAttachmentOptimal, VkImageLayout.PresentSrcKHR);
-
+        currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.ColorAttachmentOptimal, VkImageLayout.PresentSrcKHR, aspects: VkImageAspectFlags.Color);
+        currentCmdBuffer.TransitionImageLayout(_depthImage.Image, VkImageLayout.DepthStencilAttachmentOptimal, VkImageLayout.DepthStencilReadOnlyOptimal, aspects: VkImageAspectFlags.Depth);
+        
         currentCmdBuffer.End();
 
         _graphicsQueue.Submit(currentCmdBuffer, currentImageAvailableSemaphore, currentRenderFinishedSemaphore, currentInFlightFence);
@@ -244,6 +264,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
                 semaphore.Dispose();
             }
         }
+        
+        _depthImage.Dispose();
 
         CleanupSwapchain();
         CreateSwapchain();
@@ -252,49 +274,17 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         for (int i = 0; i < _mainSwapchain.Images.Length; i++) {
              _renderFinishedSemaphores[i] = new(_logicalDevice);
         }
+        
+        CreateDepthResources();
     }
 
     private void CleanupSwapchain() {
         _mainSwapchain.Dispose();
     }
-
-    private void TransitionImageLayout(CmdBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
-        VkImageMemoryBarrier barrier = new() {
-            sType = VkStructureType.ImageMemoryBarrier,
-            oldLayout = oldLayout,
-            newLayout = newLayout,
-            srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            image = image,
-            subresourceRange = new VkImageSubresourceRange {
-                aspectMask = VkImageAspectFlags.Color,
-                baseMipLevel = 0,
-                levelCount = 1,
-                baseArrayLayer = 0,
-                layerCount = 1
-            }
-        };
-
-        VkPipelineStageFlags sourceStage;
-        VkPipelineStageFlags destinationStage;
-
-        if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.ColorAttachmentOptimal) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VkAccessFlags.ColorAttachmentWrite;
-            sourceStage = VkPipelineStageFlags.TopOfPipe;
-            destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
-        }
-        else if (oldLayout == VkImageLayout.ColorAttachmentOptimal && newLayout == VkImageLayout.PresentSrcKHR) {
-            barrier.srcAccessMask = VkAccessFlags.ColorAttachmentWrite;
-            barrier.dstAccessMask = 0;
-            sourceStage = VkPipelineStageFlags.ColorAttachmentOutput;
-            destinationStage = VkPipelineStageFlags.BottomOfPipe;
-        }
-        else {
-            throw new NotSupportedException("unsupported layout transition!");
-        }
-
-        vkCmdPipelineBarrier(cmd, sourceStage, destinationStage, 0, 0, null, 0, null, 1, &barrier);
+    
+    private void CreateDepthResources() {
+        var extent = _surface.ChooseSwapExtent(_physicalDevice);
+        _depthImage = new DepthImage(_logicalDevice, extent.width, extent.height, _graphicsCmdPool, _graphicsQueue);
     }
 
     public void Dispose() {
@@ -319,6 +309,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         
         _graphicsCmdPool.Dispose();
         _mainSwapchain.Dispose();
+        _depthImage.Dispose();
         _surface.Dispose();
     }
 }

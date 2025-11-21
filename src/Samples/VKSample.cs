@@ -9,6 +9,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using StainedGlass;
+using Standard;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 using Buffer = Magpie.Core.Buffer;
@@ -76,7 +77,7 @@ internal sealed unsafe class VkSample {
         _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events);
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
             
-        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable | SDL.WindowFlags.Transparent);
+        _windowHandle = new("magpi", 400, 400, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
         _vkSurface = new(_vkInstance, _windowHandle.CreateVulkanSurface(_vkInstance));
         _windowHandle.SetRelativeMouseMode(true);
         
@@ -149,6 +150,7 @@ internal sealed unsafe class VkSample {
         _pipeline = new Pipeline(
             _vkDevice,
             Graphics.MainSwapchain.Format,
+            Graphics.DepthImage.Format,
             vertShaderCode.ToArray(),
             fragShaderCode.ToArray(),
             vertexInputBinding,
@@ -161,14 +163,59 @@ internal sealed unsafe class VkSample {
 
         ReadOnlySpan<VertexPositionColorTexture> sourceVertexData =
         [
-            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.0f), new Vector3(1.0f, 0.0f, 0.0f), new Vector2(0.0f, 0.0f)),
-            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.0f), new Vector3(0.0f, 1.0f, 0.0f), new Vector2(1.0f, 0.0f)),
-            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.0f), new Vector3(0.0f, 0.0f, 1.0f), new Vector2(1.0f, 1.0f)),
-            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.0f), new Vector3(1.0f, 1.0f, 1.0f), new Vector2(0.0f, 1.0f))
-        ];
-        uint vertexBufferSize = (uint)(sourceVertexData.Length * VertexPositionColor.SizeInBytes);
+            // Front fac
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 0
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 1
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 2
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 3
 
-        ReadOnlySpan<uint> sourceIndexData = [0, 1, 2, 2, 3, 0];
+            // Back face
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 4
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 5
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 6
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 7
+
+            // Top face
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 8
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 9
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 10
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 11
+
+            // Bottom face
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 12
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 13
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 14
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 15
+
+            // Right face
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 16
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 17
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 18
+            new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 19
+
+            // Left face
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 20
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 21
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 22
+            new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)) // 23
+        ];
+        ReadOnlySpan<uint> sourceIndexData =
+        [
+            // Front face (0-3)
+            0, 1, 2, 2, 3, 0,
+            // Back face (4-7)
+            4, 5, 6, 6, 7, 4,
+            // Top face (8-11)
+            8, 9, 10, 10, 11, 8,
+            // Bottom face (12-15)
+            12, 13, 14, 14, 15, 12,
+            // Right face (16-19)
+            16, 17, 18, 18, 19, 16,
+            // Left face (20-23)
+            20, 21, 22, 22, 23, 20
+        ];
+        
+        uint vertexBufferSize = (uint)(sourceVertexData.Length * VertexPositionColor.SizeInBytes);
         uint indexBufferSize = (uint)(sourceIndexData.Length * sizeof(uint));
 
         _vertexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, sourceVertexData);
@@ -276,7 +323,7 @@ internal sealed unsafe class VkSample {
         float b = (float)(Math.Sin(time * 0.5f + 4) * 0.5f + 0.5f);
         var color = new Color(r, g, b);
 
-        if(!Graphics.Begin(color)) return;
+        if(!Graphics.Begin(Colors.SlateGray)) return;
         
         UpdateUniformBuffer(time);
             
@@ -293,7 +340,7 @@ internal sealed unsafe class VkSample {
             
         Vulkan.vkCmdBindVertexBuffer(cmd, 0, _vertexBuffer);
         Vulkan.vkCmdBindIndexBuffer(cmd, _indexBuffer, 0, VkIndexType.Uint32);
-        Vulkan.vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+        Vulkan.vkCmdDrawIndexed(cmd, _indexBuffer.IndexCount, 1, 0, 0, 0);
 
         Graphics.End();
     }
@@ -338,7 +385,7 @@ internal sealed unsafe class VkSample {
         }
 
         _textureImageView = new ImageView(_textureImage);
-        _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Linear, VkSamplerAddressMode.Repeat));
+        _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
     }
     
     private void UpdateUniformBuffer(float time) {
