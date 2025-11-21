@@ -1,7 +1,7 @@
-﻿using System.Diagnostics;
+﻿using Magpie;
+using System.Diagnostics;
 using System.Numerics;
 using Magpie.Core;
-using Magpie.Graphics;
 using Magpie.Utilities;
 using SDL3;
 using ShaderCompilation;
@@ -10,6 +10,7 @@ using Standard;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 using Buffer = Magpie.Core.Buffer;
+using Image = Magpie.Image;
 
 namespace Samples;
     
@@ -50,6 +51,11 @@ internal sealed unsafe class VkSample {
     private Vector3 _cameraFront = Vector3.Zero;
     private Vector3 _cameraUp = Vector3.UnitY;
     private float _cameraSpeed = 1.0f;
+    
+    private Image _textureImage;        // Use Magpie.Core.Image struct
+    private DeviceMemory _textureImageMemory; // Use Magpie.Core.DeviceMemory for image
+    private ImageView _textureImageView;     // Use Magpie.Core.ImageView struct
+    private Sampler _textureSampler;
 
     private Stopwatch _stopwatch;
     private int _frameCount;

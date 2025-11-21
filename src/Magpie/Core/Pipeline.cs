@@ -2,7 +2,7 @@
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 //lots of work to be done here
 
 public readonly unsafe struct Pipeline : IDisposable {

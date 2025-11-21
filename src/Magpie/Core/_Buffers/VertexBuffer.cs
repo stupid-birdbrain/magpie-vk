@@ -4,7 +4,7 @@ using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 using Buffer = Magpie.Core.Buffer;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public unsafe struct VertexBuffer<TVertex> : IDisposable where TVertex : unmanaged {
     public Buffer Buffer;

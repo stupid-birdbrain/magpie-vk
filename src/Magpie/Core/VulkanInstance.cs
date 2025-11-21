@@ -1,4 +1,4 @@
-﻿using Magpie.Graphics;
+﻿using Magpie.Core;
 using Magpie.Utilities;
 using SDL3;
 using System.Diagnostics;

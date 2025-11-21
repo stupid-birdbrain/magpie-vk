@@ -1,4 +1,4 @@
-﻿using Magpie.Graphics;
+﻿using Magpie.Core;
 using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;

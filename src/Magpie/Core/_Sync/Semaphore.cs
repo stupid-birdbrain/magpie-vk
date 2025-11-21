@@ -1,6 +1,6 @@
 using Vortice.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public readonly unsafe struct Semaphore : IDisposable {
     internal readonly VkSemaphore Value;

@@ -1,6 +1,6 @@
 using Vortice.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public unsafe struct Fence : IDisposable {
     internal VkFence Value;

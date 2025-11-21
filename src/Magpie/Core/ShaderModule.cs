@@ -1,7 +1,7 @@
 using Magpie.Core;
 using Vortice.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public unsafe struct ShaderModule : IDisposable {
     internal VkShaderModule Value;

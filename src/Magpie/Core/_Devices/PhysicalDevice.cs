@@ -3,7 +3,7 @@
     using Vortice.Vulkan;
     using static Vortice.Vulkan.Vulkan;
 
-    namespace Magpie.Graphics;
+    namespace Magpie.Core;
         
     /// <summary>
     ///     Represents a GPU. Contains info like vendor id, memory properties, avaliable extensions, etc.

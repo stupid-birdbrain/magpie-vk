@@ -5,7 +5,7 @@ using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public sealed unsafe class GraphicsDevice : IDisposable {
     private const int max_frames_in_flight = 2;

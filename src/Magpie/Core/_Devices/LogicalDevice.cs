@@ -1,4 +1,4 @@
-using Magpie.Graphics;
+using Magpie.Core;
 using System.Runtime.CompilerServices;
 using Vortice.Vulkan;
 

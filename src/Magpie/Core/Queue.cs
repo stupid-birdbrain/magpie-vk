@@ -1,7 +1,7 @@
 using Magpie.Core;
 using Vortice.Vulkan;
 
-namespace Magpie.Graphics;
+namespace Magpie.Core;
 
 public readonly unsafe struct Queue {
     public readonly LogicalDevice LogicalDevice;
