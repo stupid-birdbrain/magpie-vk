@@ -20,10 +20,10 @@ public readonly struct VertexPositionTexture(in Vector3 position, in Vector2 tex
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
-public readonly struct VertexPositionColorTexture(in Vector3 position, in Vector3 color, in Vector2 texCoord) {
+public readonly struct VertexPositionColorTexture(in Vector3 position, in Vector4 color, in Vector2 texCoord) {
     public static unsafe int SizeInBytes => sizeof(VertexPositionColorTexture);
 
     public readonly Vector3 Position = position;
-    public readonly Vector3 Color = color;
+    public readonly Vector4 Color = color;
     public readonly Vector2 TexCoord = texCoord;
 }
