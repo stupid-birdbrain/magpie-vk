@@ -52,9 +52,9 @@ internal sealed unsafe class VkSample {
     private Vector3 _cameraUp = Vector3.UnitY;
     private float _cameraSpeed = 1.0f;
     
-    private Image _textureImage;        // Use Magpie.Core.Image struct
-    private DeviceMemory _textureImageMemory; // Use Magpie.Core.DeviceMemory for image
-    private ImageView _textureImageView;     // Use Magpie.Core.ImageView struct
+    private Image _textureImage;
+    private DeviceMemory _textureImageMemory;
+    private ImageView _textureImageView;
     private Sampler _textureSampler;
 
     private Stopwatch _stopwatch;
