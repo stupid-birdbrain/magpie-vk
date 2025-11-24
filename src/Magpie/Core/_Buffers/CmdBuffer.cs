@@ -1,5 +1,4 @@
-﻿using Magpie.Core;
-using Standard;
+﻿using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -125,7 +124,46 @@ public unsafe struct CmdBuffer : IDisposable {
 
         vkCmdPipelineBarrier(Value, sourceStage, destinationStage, 0, 0, null, 0, null, 1, &barrier);
     }
+    
 
+    public void BufferMemoryBarrier(
+        VkAccessFlags srcAccessMask,
+        VkAccessFlags dstAccessMask,
+        Buffer bufferA,
+        Buffer bufferB,
+        VkPipelineStageFlags srcStageMask,
+        VkPipelineStageFlags dstStageMask)
+    {
+        VkBufferMemoryBarrier* barriers = stackalloc VkBufferMemoryBarrier[2];
+
+        barriers[0] = new VkBufferMemoryBarrier {
+            sType = VkStructureType.BufferMemoryBarrier,
+            srcAccessMask = srcAccessMask,
+            dstAccessMask = dstAccessMask,
+            srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            buffer = bufferA,
+            offset = 0,
+            size = VK_WHOLE_SIZE
+        };
+
+        barriers[1] = new VkBufferMemoryBarrier {
+            sType = VkStructureType.BufferMemoryBarrier,
+            srcAccessMask = srcAccessMask,
+            dstAccessMask = dstAccessMask,
+            srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            buffer = bufferB,
+            offset = 0,
+            size = VK_WHOLE_SIZE
+        };
+
+        vkCmdPipelineBarrier(Value, srcStageMask, dstStageMask, 0, 0, null, 2, barriers, 0, null);
+    }
+
+    public void Dispatch(uint groupCountX, uint groupCountY, uint groupCountZ) {
+        vkCmdDispatch(Value, groupCountX, groupCountY, groupCountZ);
+    }
     
     public void Dispose() {
         if (Value != VkCommandBuffer.Null) {

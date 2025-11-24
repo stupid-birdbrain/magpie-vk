@@ -22,12 +22,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Update="SDL3.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-    </ItemGroup>
-
-    <ItemGroup>
       <ProjectReference Include="..\..\..\Standard\src\Standard\Standard.csproj" />
     </ItemGroup>
 

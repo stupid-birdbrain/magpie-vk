@@ -4,6 +4,7 @@ using SDL3;
 using Standard;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
+using Image = Magpie.Core.Image;
 using Semaphore = Magpie.Core.Semaphore;
 
 namespace Magpie;

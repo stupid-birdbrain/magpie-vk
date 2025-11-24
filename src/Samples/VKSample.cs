@@ -14,7 +14,7 @@ using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 using Buffer = Magpie.Core.Buffer;
 using Color = Standard.Color;
-using Image = Magpie.Image;
+using Image = Magpie.Core.Image;
 
 namespace Samples;
 
@@ -39,6 +39,7 @@ internal sealed unsafe class VkSample {
     private ShaderCompiler? _compiler;
 
     private Pipeline _pipeline;
+    private PipelineLayout _pipelineLayout;
 
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
@@ -93,13 +94,11 @@ internal sealed unsafe class VkSample {
             "VK_KHR_dynamic_rendering"
         ];
 
-        PhysicalDevice bestDevice;
-        if (!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out bestDevice)) {
+        if (!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out PhysicalDevice bestDevice)) {
             throw new InvalidOperationException("no valid physical device found");
         }
 
-        uint graphicsQueueFamilyIndex;
-        if (!bestDevice.TryGetGraphicsQueueFamily(out graphicsQueueFamilyIndex)) {
+        if (!bestDevice.TryGetGraphicsQueueFamily(out uint graphicsQueueFamilyIndex)) {
             throw new Exception("selected physical device does not have a graphics queue family");
         }
 
@@ -118,7 +117,6 @@ internal sealed unsafe class VkSample {
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
 
         VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
-
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
             new(
                 location: 0,
@@ -140,26 +138,47 @@ internal sealed unsafe class VkSample {
             )
         };
 
-        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[1];
-        bindings[0] = new(0, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
-        _descriptorSetLayout = new(_vkDevice, bindings);
+        Span<DescriptorSetLayoutBinding> descriptorSetBindings = stackalloc DescriptorSetLayoutBinding[1];
+        descriptorSetBindings[0] = new(0, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
+        _descriptorSetLayout = new(_vkDevice, descriptorSetBindings);
 
-        VkPushConstantRange pushConstantRange = new VkPushConstantRange {
-            stageFlags = VkShaderStageFlags.Vertex,
+        VkPushConstantRange vkPushConstantRange = new VkPushConstantRange {
+            stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             offset = 0,
             size = (uint)Marshal.SizeOf<PushConstantMatrices>()
+        };
+        var pushConstant = new PushConstant(vkPushConstantRange.offset, vkPushConstantRange.size, vkPushConstantRange.stageFlags);
+
+        _pipelineLayout = new(_vkDevice, [_descriptorSetLayout], [pushConstant]);
+        
+        PipelineCreationDescription pipelineDescription = new()
+        {
+            VertexShader = vertmodule,
+            FragmentShader = fragmodule,
+
+            BlendSettings = BlendSettings.Opaque,
+            DepthTestEnable = true,
+            DepthWriteEnable = true,
+            DepthCompareOp = VkCompareOp.Less,
+            StencilTestEnable = false,
+            
+            CullMode = VkCullModeFlags.None,
+            FrontFace = VkFrontFace.CounterClockwise,
+            PolygonMode = VkPolygonMode.Fill,
+
+            PrimitiveTopology = VkPrimitiveTopology.TriangleList,
+            PrimitiveRestartEnable = false
         };
 
         _pipeline = new Pipeline(
             _vkDevice,
             Graphics.MainSwapchain.Format,
             Graphics.DepthImage.Format,
-            vertShaderCode.ToArray(),
-            fragShaderCode.ToArray(),
+            pipelineDescription,
+            _pipelineLayout,
             vertexInputBinding,
             vertexInputAttributes,
-            _descriptorSetLayout,
-            pushConstantRange
+            new VkUtf8ReadOnlyString("main"u8)
         );
 
         Vulkan.vkDestroyShaderModule(_vkDevice, vertmodule);
@@ -168,9 +187,9 @@ internal sealed unsafe class VkSample {
 
         ReadOnlySpan<VertexPositionColorTexture> sourceVertexData =
         [
-            // Front fac
-            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 0.0f)), // 0
-            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 0.0f)), // 1
+            // Front face
+            new VertexPositionColorTexture(new Vector3(-0.5f, -0.5f, 0.5f), Colors.Red.ToVector4(), new Vector2(0.0f, 0.0f)), // 0
+            new VertexPositionColorTexture(new Vector3(0.5f, -0.5f, 0.5f), Colors.Aqua.ToVector4(), new Vector2(1.0f, 0.0f)), // 1
             new VertexPositionColorTexture(new Vector3(0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 2
             new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)), // 3
 
@@ -204,6 +223,7 @@ internal sealed unsafe class VkSample {
             new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 22
             new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)) // 23
         ];
+        
         ReadOnlySpan<uint> sourceIndexData =
         [
             0, 1, 2, 2, 3, 0,
@@ -227,7 +247,7 @@ internal sealed unsafe class VkSample {
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
-        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler, 0);
+        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler);
 
         while (!Quit) {
             Time.Start();
@@ -384,14 +404,13 @@ internal sealed unsafe class VkSample {
     }
 
     private void UpdatePushConstants(float time) {
-        Matrix4x4 scaleMatrix = Matrix4x4.CreateScale(15);
-        Matrix4x4 model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f) * scaleMatrix;
-        Matrix4x4 view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
+        var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
+        var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         float aspectRatio = extent.X / extent.Y;
         Matrix4x4 proj = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 1.1f,
+            MathF.PI / 4.0f,
             aspectRatio,
             0.1f,
             100.0f
@@ -399,8 +418,7 @@ internal sealed unsafe class VkSample {
 
         proj.M22 *= -1;
 
-        PushConstantMatrices pc = new()
-        {
+        PushConstantMatrices pc = new() {
             Model = model,
             View = view,
             Proj = proj
@@ -410,13 +428,12 @@ internal sealed unsafe class VkSample {
         Vulkan.vkCmdPushConstants(
             cmd,
             _pipeline.Layout,
-            VkShaderStageFlags.Vertex,
+            VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             0,
             (uint)Marshal.SizeOf<PushConstantMatrices>(),
             &pc
         );
     }
-    
 
     private void Dispose() {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
@@ -427,6 +444,7 @@ internal sealed unsafe class VkSample {
         _textureImageMemory.Dispose();
 
         _pipeline.Dispose();
+        _pipelineLayout.Dispose();
 
         _vertexBuffer.Dispose();
         _indexBuffer.Dispose();

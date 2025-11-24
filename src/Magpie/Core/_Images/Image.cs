@@ -1,7 +1,6 @@
-﻿using Magpie.Core;
-using Vortice.Vulkan;
+﻿using Vortice.Vulkan;
 
-namespace Magpie;
+namespace Magpie.Core;
 
 public unsafe struct Image : IDisposable {
     public readonly LogicalDevice Device;
