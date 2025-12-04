@@ -279,7 +279,42 @@ public unsafe struct VulkanInstance : IDisposable {
             return score;
         }
     }
-            
+
+    public readonly bool TryGetPhysicalDeviceByIndex(int deviceIndex, ReadOnlySpan<string> requiredExtensions,
+        out PhysicalDevice bestDevice) {
+        bestDevice = default;
+        if(deviceIndex < 0 || deviceIndex >= _devices.Count) {
+            return false;
+        }
+
+        var candidateDevice = _devices[deviceIndex];
+        var availableExtensions = candidateDevice.GetExtensions();
+        
+        if(availableExtensions.Length > 0) {
+            foreach(var requiredExtension in requiredExtensions) {
+                bool isAvailable = false;
+                foreach (VkExtensionProperties extension in availableExtensions) {
+                    var extensionName = Marshal.PtrToStringAnsi((IntPtr)extension.extensionName);
+                    if (extensionName == requiredExtension) {
+                        isAvailable = true;
+                        break;
+                    }
+                }
+
+                if (!isAvailable) {
+                    return false;
+                }
+            }
+        }
+        
+        bestDevice = candidateDevice;
+
+        var props = candidateDevice.GetProperties();
+        string chosenDevice = (Marshal.PtrToStringAnsi((IntPtr)props.deviceName) ?? "Unknown");
+        Console.WriteLine("Selected device: " + chosenDevice);
+        return true;
+    }
+
     public void Dispose() {
         if(DebugMessenger != default(VkDebugUtilsMessengerEXT)) {
             vkDestroyDebugUtilsMessengerEXT(this, DebugMessenger);

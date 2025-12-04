@@ -93,9 +93,26 @@ internal sealed unsafe class VkSample {
             "VK_KHR_spirv_1_4",
             "VK_KHR_dynamic_rendering"
         ];
-        
-        if (!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out PhysicalDevice bestDevice)) {
-            throw new InvalidOperationException("no valid physical device found");
+
+        PhysicalDevice bestDevice = default;
+        if(args.Contains("--override")) { // --override <index>
+            int idx = Array.IndexOf(args, "--override") + 1;
+            if(idx >= args.Length) {
+                throw new ArgumentException("no index provided for --override argument");
+            }
+            
+            if(!int.TryParse(args[idx], out int deviceIndex)) {
+                throw new ArgumentException("invalid index provided for --override argument");
+            }
+            
+            if(!_vkInstance.TryGetPhysicalDeviceByIndex(deviceIndex, requiredDeviceExtensions, out bestDevice)) {
+                throw new InvalidOperationException($"no valid physical device found at index {deviceIndex}");
+            }
+        }
+        else {
+            if(!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out bestDevice)) {
+                throw new InvalidOperationException("no valid physical device found");
+            }
         }
 
         if (!bestDevice.TryGetGraphicsQueueFamily(out uint graphicsQueueFamilyIndex)) {
@@ -422,7 +439,7 @@ internal sealed unsafe class VkSample {
     }
 
     private void UpdatePushConstants(float time) {
-        //var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
+        var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
         var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
@@ -437,7 +454,7 @@ internal sealed unsafe class VkSample {
         proj.M22 *= -1;
 
         PushConstantMatrices pc = new() {
-            Model = Matrix4x4.Identity,
+            Model = model,
             View = view,
             Proj = proj
         };

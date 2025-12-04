@@ -11,7 +11,7 @@
 
     <ItemGroup>
         <PackageReference Include="Assimp" Version="3.0.0" />
-            <PackageReference Include="SDL3-CS" Version="3.2.16.1" />
+        <PackageReference Include="SDL3-CS" Version="3.2.16.1" />
         <PackageReference Include="SDL3-CS.Native" Version="3.2.20" />
         <PackageReference Include="SDL3-CS.Native.Image" Version="3.2.4" />
         <PackageReference Include="Silk.NET.Core" Version="2.22.0" />
@@ -22,8 +22,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\..\ShaderCompilation\src\ShaderCompilation\ShaderCompilation.csproj" />
-      <ProjectReference Include="..\..\..\Standard\src\Standard\Standard.csproj" />
+      <ProjectReference Include="../../deps/standard/src/Standard/Standard.csproj" />
+      <ProjectReference Include="..\..\deps\magpie-shaderc\src\ShaderCompilation\ShaderCompilation.csproj" />
     </ItemGroup>
 
 </Project>

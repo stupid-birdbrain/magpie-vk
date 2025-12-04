@@ -13,8 +13,8 @@
 
     <ItemGroup>
       <ProjectReference Include="../Magpie/Magpie.csproj" />
-      <ProjectReference Include="..\..\..\ShaderCompilation\src\ShaderCompilation\ShaderCompilation.csproj" />
-      <ProjectReference Include="..\..\..\stained-glass\src\StainedGlass\StainedGlass.csproj" />
+      <ProjectReference Include="../../deps/magpie-shaderc/src/ShaderCompilation/ShaderCompilation.csproj" />
+      <ProjectReference Include="../../deps/stained-glass/src/StainedGlass/StainedGlass.csproj" />
     </ItemGroup>
 
     <ItemGroup>
