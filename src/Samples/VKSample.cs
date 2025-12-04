@@ -93,7 +93,7 @@ internal sealed unsafe class VkSample {
             "VK_KHR_spirv_1_4",
             "VK_KHR_dynamic_rendering"
         ];
-
+        
         if (!_vkInstance.TryGetBestPhysicalDevice(requiredDeviceExtensions, out PhysicalDevice bestDevice)) {
             throw new InvalidOperationException("no valid physical device found");
         }
@@ -108,14 +108,35 @@ internal sealed unsafe class VkSample {
         Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
         CreateTextureImage("resources/hashbrown.png");
 
-        VkUtf8ReadOnlyString entryPoint = "main"u8;
+        var entryPoint = "main"u8;
 
         var vertShaderCode = _compiler.CompileShader(@"resources/base/base.vert", ShaderKind.Vertex, true);
         var fragShaderCode = _compiler.CompileShader(@"resources/base/base.frag", ShaderKind.Fragment, true);
 
+        var data = _compiler.ReflectShader(_compiler.CompileShader(@"resources/base_textured/base.frag", ShaderKind.Fragment, true).ToArray());
+        Console.WriteLine(data.ToString());
+        
+        // foreach(var pc in data.PushConstants) {
+        //     Console.WriteLine(pc.ToString());
+        //     foreach(var member in pc.Members) {
+        //         Console.WriteLine(member.ToString());
+        //     }
+        // }
+        //
+        // foreach(var ubo in data.UniformBuffers) {
+        //     Console.WriteLine(ubo.ToString());
+        // }
+        //
+        // foreach(var ssbo in data.StorageBuffers) {
+        //     foreach(var member in ssbo.Members) {
+        //         Console.WriteLine(member.ToString());
+        //     }
+        //     Console.WriteLine(ssbo.ToString());
+        // }
+        
         var vertmodule = new ShaderModule(_vkDevice, vertShaderCode.ToArray());
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
-
+        
         VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
             new(
@@ -151,8 +172,7 @@ internal sealed unsafe class VkSample {
 
         _pipelineLayout = new(_vkDevice, [_descriptorSetLayout], [pushConstant]);
         
-        PipelineCreationDescription pipelineDescription = new()
-        {
+        PipelineCreationDescription pipelineDescription = new() {
             VertexShader = vertmodule,
             FragmentShader = fragmodule,
 
@@ -178,12 +198,11 @@ internal sealed unsafe class VkSample {
             _pipelineLayout,
             vertexInputBinding,
             vertexInputAttributes,
-            new VkUtf8ReadOnlyString("main"u8)
+            "main"u8
         );
 
         Vulkan.vkDestroyShaderModule(_vkDevice, vertmodule);
         Vulkan.vkDestroyShaderModule(_vkDevice, fragmodule);
-
 
         ReadOnlySpan<VertexPositionColorTexture> sourceVertexData =
         [
@@ -239,7 +258,6 @@ internal sealed unsafe class VkSample {
 
         _vertexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, sourceVertexData);
         _indexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, MemoryMarshal.AsBytes(sourceIndexData));
-
 
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
@@ -404,7 +422,7 @@ internal sealed unsafe class VkSample {
     }
 
     private void UpdatePushConstants(float time) {
-        var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
+        //var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
         var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
@@ -419,7 +437,7 @@ internal sealed unsafe class VkSample {
         proj.M22 *= -1;
 
         PushConstantMatrices pc = new() {
-            Model = model,
+            Model = Matrix4x4.Identity,
             View = view,
             Proj = proj
         };

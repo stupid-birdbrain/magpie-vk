@@ -106,8 +106,11 @@ public readonly unsafe struct Pipeline : IDisposable {
                 cullMode = description.CullMode,
                 frontFace = description.FrontFace
             };
+            
             VkPipelineMultisampleStateCreateInfo multisampleState = new() {
-                sType = VkStructureType.PipelineMultisampleStateCreateInfo, rasterizationSamples = VkSampleCountFlags.Count1
+                sType = VkStructureType.PipelineMultisampleStateCreateInfo, 
+                rasterizationSamples = VkSampleCountFlags.Count1,
+                alphaToCoverageEnable = true
             };
 
             VkPipelineDepthStencilStateCreateInfo depthStencilState = new() {
@@ -163,7 +166,8 @@ public readonly unsafe struct Pipeline : IDisposable {
             };
 
             fixed(VkPipeline* ptr = &Value)
-                vkCreateGraphicsPipelines(device, VkPipelineCache.Null, 1, &pipelineCreateInfo, null, ptr).CheckResult();
+                vkCreateGraphicsPipelines(device, VkPipelineCache.Null, 1, &pipelineCreateInfo, null, ptr)
+                    .CheckResult();
         }
     }
 

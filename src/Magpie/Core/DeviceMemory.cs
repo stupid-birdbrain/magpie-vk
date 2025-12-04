@@ -26,9 +26,11 @@ public unsafe struct DeviceMemory : IDisposable {
             memoryTypeIndex = memoryTypeIndex
         };
 
-        vkAllocateMemory(Device, &allocInfo, null, out Value).CheckResult("failed to allocate memory for buffer!");
+        vkAllocateMemory(Device, &allocInfo, null, out Value)
+            .CheckResult("failed to allocate memory for buffer!");
         
-        vkBindBufferMemory(Device, buffer, Value, 0).CheckResult("failed to bind memory to buffer!");
+        vkBindBufferMemory(Device, buffer, Value, 0)
+            .CheckResult("failed to bind memory to buffer!");
     }
     
     public DeviceMemory(Image image, VkMemoryPropertyFlags properties) {
