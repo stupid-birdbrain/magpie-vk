@@ -52,6 +52,35 @@ public unsafe struct CmdBuffer : IDisposable {
         vkCmdCopyBufferToImage(Value, buffer, image, VkImageLayout.TransferDstOptimal, 1, &region);
     }
     
+    public void BindPipeline(Pipeline pipeline) 
+        => vkCmdBindPipeline(Value, VkPipelineBindPoint.Graphics, pipeline);
+    
+    public void BindVertexBuffer<TVertex>(in VertexBuffer<TVertex> vertexBuffer, uint firstBinding = 0, ulong offset = 0) where TVertex : unmanaged {
+        var bufferHandle = vertexBuffer.Buffer.Value;
+        vkCmdBindVertexBuffers(Value, firstBinding, 1, &bufferHandle, &offset);
+    }
+
+    public void BindIndexBuffer(in IndexBuffer indexBuffer, ulong offset = 0, VkIndexType indexType = VkIndexType.Uint32) 
+        => vkCmdBindIndexBuffer(Value, indexBuffer.Buffer.Value, offset, indexType);
+    
+    public readonly void DrawIndexed(uint indexCount, uint instanceCount = 1, uint firstIndex = 0, int vertexOffset = 0, uint firstInstance = 0)
+        => vkCmdDrawIndexed(Value, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+    
+    public readonly void BindDescriptorSets(PipelineLayout layout, Span<DescriptorSet> descriptorSets, uint set = 0) {
+        var descriptorSetValue = stackalloc VkDescriptorSet[descriptorSets.Length];
+        for (int i = 0; i < descriptorSets.Length; i++) {
+            descriptorSetValue[i] = descriptorSets[i].Value;
+        }
+
+        vkCmdBindDescriptorSets(
+            Value, 
+            VkPipelineBindPoint.Graphics, 
+            layout.Value, 
+            set, 
+            new ReadOnlySpan<VkDescriptorSet>(descriptorSetValue, descriptorSets.Length)
+            );
+    }
+    
     public void TransitionImageLayout(Image image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspects = VkImageAspectFlags.Color, uint baseMipLevel = 0, uint levelCount = 1, uint baseArrayLayer = 0, uint layerCount = 1) {
         VkImageMemoryBarrier barrier = new() {
             sType = VkStructureType.ImageMemoryBarrier,

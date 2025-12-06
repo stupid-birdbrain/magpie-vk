@@ -6,7 +6,7 @@ namespace Magpie.Core;
 public readonly unsafe struct Pipeline : IDisposable {
     public readonly LogicalDevice Device;
     public readonly VkPipeline Value;
-    public readonly VkPipelineLayout Layout;
+    public readonly PipelineLayout Layout;
     
     public Pipeline(
         LogicalDevice device,
@@ -28,7 +28,7 @@ public readonly unsafe struct Pipeline : IDisposable {
             pipelineLayoutCreateInfo.pPushConstantRanges = &pcr;
         }
 
-        vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, null, out Layout).CheckResult();
+        vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, null, out Layout.Value).CheckResult();
         Value = VkPipeline.Null;
         
         using var computeModule = new ShaderModule(device, computeShaderCode.ToArray());
@@ -44,7 +44,7 @@ public readonly unsafe struct Pipeline : IDisposable {
         VkComputePipelineCreateInfo pipelineCreateInfo = new() {
             sType = VkStructureType.ComputePipelineCreateInfo,
             stage = shaderStage,
-            layout = Layout
+            layout = Layout.Value
         };
 
         fixed (VkPipeline* ptr = &Value)
@@ -66,7 +66,7 @@ public readonly unsafe struct Pipeline : IDisposable {
     )
     {
         Device = device;
-        Layout = pipelineLayout.Value;
+        Layout = pipelineLayout;
         Value = VkPipeline.Null;
 
         VkPipelineShaderStageCreateInfo* shaderStages = stackalloc VkPipelineShaderStageCreateInfo[2];
@@ -161,7 +161,7 @@ public readonly unsafe struct Pipeline : IDisposable {
                 pDepthStencilState = &depthStencilState,
                 pColorBlendState = &colorBlendState,
                 pDynamicState = &dynamicState,
-                layout = Layout,
+                layout = Layout.Value,
                 renderPass = VkRenderPass.Null
             };
 

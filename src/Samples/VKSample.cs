@@ -64,6 +64,10 @@ internal sealed unsafe class VkSample {
     private int _frameCount;
     private double _elapsedTime;
 
+    private Keyboard _keyboard;
+    private Mouse _mouse;
+    private bool _isRelativeMouseMode = true;
+
     public void Run(string[] args) {
         Initialize(args);
         Dispose();
@@ -73,7 +77,7 @@ internal sealed unsafe class VkSample {
         _compiler = new ShaderCompiler();
 
         _vkContext = new("vulkan");
-        _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events);
+        _sdlContext = new(SDL.InitFlags.Video | SDL.InitFlags.Events | SDL.InitFlags.Gamepad);
         _vkInstance = new(_vkContext, "magpieTests", "magpieco");
 
         _windowHandle = new("magpi", 1200, 800, SDL.WindowFlags.Vulkan | SDL.WindowFlags.Resizable);
@@ -89,6 +93,7 @@ internal sealed unsafe class VkSample {
             new VkUtf8String(Vulkan.VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME.GetPointer()).ToString()!,
             new VkUtf8String(Vulkan.VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME.GetPointer()).ToString()!,
             new VkUtf8String(Vulkan.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME.GetPointer()).ToString()!,
+            new VkUtf8String(Vulkan.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME.GetPointer()).ToString()!,
             new VkUtf8String(Vulkan.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME.GetPointer()).ToString()!,
             "VK_KHR_spirv_1_4",
             "VK_KHR_dynamic_rendering"
@@ -284,13 +289,56 @@ internal sealed unsafe class VkSample {
 
         _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler);
 
+        _keyboard = new();
+        _mouse = new();
+        
         while (!Quit) {
+            _keyboard.Update();
+            _mouse.Update();
+            
             Time.Start();
-            while (SDL.PollEvent(out var @event)) {
+            while (_sdlContext.PollEvent(out var @event)) {
                 HandleEvent(@event);
-            }
-            HandleContinuousInput();
 
+                switch(@event.Type) {
+                    case (uint)SDL.EventType.KeyDown:
+                        _keyboard.SetKeyState(@event.Key.Scancode, true);
+                        Console.WriteLine($"key pressed: {@event.Key.Scancode}");
+                        break;
+                    case (uint)SDL.EventType.KeyUp:
+                        _keyboard.SetKeyState(@event.Key.Scancode, false);
+                        break;
+                    case (uint)SDL.EventType.MouseMotion:
+                        _mouse.SetPosition(new Vector2(@event.Motion.X, @event.Motion.Y));
+                        if (_isRelativeMouseMode)
+                        {
+                            _mouse.AddRelativeDelta(new Vector2(@event.Motion.XRel, @event.Motion.YRel));
+                        }
+                        
+                        break;
+                    case (uint)SDL.EventType.MouseButtonDown:
+                        _mouse.SetButtonState((Mouse.Button)@event.Button.Button, true);
+                        break;
+                    case (uint)SDL.EventType.MouseButtonUp:
+                        _mouse.SetButtonState((Mouse.Button)@event.Button.Button, false);
+                        break;
+                    case (uint)SDL.EventType.MouseWheel:
+                        _mouse.AddScrollDelta(new Vector2(@event.Wheel.X, @event.Wheel.Y));
+                        break;
+                }
+            }
+            
+            if(_mouse.WasButtonReleased(Mouse.Button.RightButton))
+                Console.WriteLine("no longer pressed");
+            
+            var scrollDelta = _mouse.GetScrollDelta();
+            if (scrollDelta != Vector2.Zero) {
+                Console.WriteLine($"scroll: {scrollDelta}");
+            }
+            
+            HandleContinuousInput();
+            UpdateCameraMovement();
+            
             Time.Update();
             Draw();
             Time.Stop();
@@ -317,7 +365,6 @@ internal sealed unsafe class VkSample {
                     Quit = true;
                 break;
             case (uint)SDL.EventType.MouseMotion:
-                HandleMouseMotion((int)@event.Motion.XRel, (int)@event.Motion.YRel);
                 break;
             case (uint)SDL.EventType.WindowMinimized:
                 Graphics?.NotifyResize();
@@ -325,41 +372,45 @@ internal sealed unsafe class VkSample {
         }
     }
 
-    private void HandleMouseMotion(int xRel, int yRel) {
-        _cameraYaw += xRel * 0.005f;
-        _cameraPitch -= yRel * 0.005f;
-        _cameraPitch = Math.Clamp(_cameraPitch, -MathF.PI * 0.49f, MathF.PI * 0.49f);
+    private void UpdateCameraMovement() {
+        if (_isRelativeMouseMode) {
+            Vector2 mouseDelta = _mouse.GetRelativeDelta();
 
-        _cameraFront.X = MathF.Cos(_cameraYaw) * MathF.Cos(_cameraPitch);
-        _cameraFront.Y = MathF.Sin(_cameraPitch);
-        _cameraFront.Z = MathF.Sin(_cameraYaw) * MathF.Cos(_cameraPitch);
-        _cameraFront = Vector3.Normalize(_cameraFront);
+            _cameraYaw += mouseDelta.X * 0.005f;
+            _cameraPitch -= mouseDelta.Y * 0.005f;
+
+            _cameraPitch = Math.Clamp(_cameraPitch, -MathF.PI * 0.49f, MathF.PI * 0.49f);
+            
+            _cameraFront.X = MathF.Cos(_cameraYaw) * MathF.Cos(_cameraPitch);
+            _cameraFront.Y = MathF.Sin(_cameraPitch);
+            _cameraFront.Z = MathF.Sin(_cameraYaw) * MathF.Cos(_cameraPitch);
+            _cameraFront = Vector3.Normalize(_cameraFront);
+        }
     }
 
     private void HandleContinuousInput() {
         float moveSpeed = _cameraSpeed * Time.DeltaTime;
-        var keyboardState = SDL.GetKeyboardState(out int numKeys);
 
         Vector3 currentCameraFront = _cameraFront;
         Vector3 flatCameraFront = Vector3.Normalize(new Vector3(_cameraFront.X, 0, _cameraFront.Z));
         Vector3 right = Vector3.Normalize(Vector3.Cross(flatCameraFront, _cameraUp));
-
-        if (keyboardState[(int)SDL.Scancode.W]) {
+    
+        if (_keyboard.IsKeyDown(Keyboard.Keys.W)) {
             _cameraPosition += flatCameraFront * moveSpeed;
         }
-        if (keyboardState[(int)SDL.Scancode.S]) {
+        if (_keyboard.IsKeyDown(Keyboard.Keys.S)) {
             _cameraPosition -= flatCameraFront * moveSpeed;
         }
-        if (keyboardState[(int)SDL.Scancode.A]) {
+        if (_keyboard.IsKeyDown(Keyboard.Keys.A)) {
             _cameraPosition -= right * moveSpeed;
         }
-        if (keyboardState[(int)SDL.Scancode.D]) {
+        if (_keyboard.IsKeyDown(Keyboard.Keys.D)) {
             _cameraPosition += right * moveSpeed;
         }
-        if (keyboardState[(int)SDL.Scancode.Q]) {
+        if (_keyboard.IsKeyDown(Keyboard.Keys.Q)) {
             _cameraPosition += _cameraUp * moveSpeed;
         }
-        if (keyboardState[(int)SDL.Scancode.E]) {
+        if (_keyboard.IsKeyDown(Keyboard.Keys.E)) {
             _cameraPosition -= _cameraUp * moveSpeed;
         }
     }
@@ -367,30 +418,27 @@ internal sealed unsafe class VkSample {
     void Draw() {
         Debug.Assert(Graphics != null);
 
-        float time = Time.GlobalTime;
-        float r = (float)(Math.Sin(time * 0.5f) * 0.5f + 0.5f);
-        float g = (float)(Math.Sin(time * 0.5f + 2) * 0.5f + 0.5f);
-        float b = (float)(Math.Sin(time * 0.5f + 4) * 0.5f + 0.5f);
-        var color = new Color(r, g, b);
-
         if(!Graphics.Begin(Colors.SlateGray)) return;
 
-        UpdatePushConstants(time);
+        UpdatePushConstants();
 
         var cmd = Graphics.RequestCurrentCommandBuffer();
 
-        Vulkan.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _pipeline);
-        fixed (VkDescriptorSet* pDescriptorSet = &_descriptorSet.Value) {
-            Vulkan.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipeline.Layout, 0, 1, pDescriptorSet, 0, null);
-        }
+        cmd.BindPipeline(_pipeline);
+        
+        Span<DescriptorSet> descriptorSets = stackalloc DescriptorSet[1];
+        descriptorSets[0] = _descriptorSet;
+
+        cmd.BindDescriptorSets(_pipeline.Layout, descriptorSets);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         cmd.SetViewport(new(0, 0, extent.X, extent.Y));
         cmd.SetScissor(new(0, 0, (uint)extent.X, (uint)extent.Y));
 
-        Vulkan.vkCmdBindVertexBuffer(cmd, 0, _vertexBuffer);
-        Vulkan.vkCmdBindIndexBuffer(cmd, _indexBuffer, 0, VkIndexType.Uint32);
-        Vulkan.vkCmdDrawIndexed(cmd, _indexBuffer.IndexCount, 1, 0, 0, 0);
+        cmd.BindVertexBuffer(_vertexBuffer);
+        cmd.BindIndexBuffer(_indexBuffer);
+        
+        cmd.DrawIndexed(_indexBuffer.IndexCount);
 
         Graphics.End();
     }
@@ -438,14 +486,13 @@ internal sealed unsafe class VkSample {
         _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
     }
 
-    private void UpdatePushConstants(float time) {
-        var model = Matrix4x4.CreateRotationX(time * 0.5f) * Matrix4x4.CreateRotationZ(time * 0.5f) * Matrix4x4.CreateRotationY(time * 0.5f);
+    private void UpdatePushConstants() {
         var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         float aspectRatio = extent.X / extent.Y;
         Matrix4x4 proj = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 4.0f,
+            MathF.PI / 2.5f,
             aspectRatio,
             0.1f,
             100.0f
@@ -454,7 +501,7 @@ internal sealed unsafe class VkSample {
         proj.M22 *= -1;
 
         PushConstantMatrices pc = new() {
-            Model = model,
+            Model = Matrix4x4.Identity,
             View = view,
             Proj = proj
         };

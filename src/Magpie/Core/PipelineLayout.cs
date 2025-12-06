@@ -55,6 +55,8 @@ public unsafe struct PipelineLayout : IDisposable {
         Vulkan.vkDestroyPipelineLayout(Device, Value);
         Value = default;
     }
+    
+    public static implicit operator VkPipelineLayout(PipelineLayout layout) => layout.Value;
 }
 
 public readonly struct PushConstant(uint offset, uint size, VkShaderStageFlags stage) {
