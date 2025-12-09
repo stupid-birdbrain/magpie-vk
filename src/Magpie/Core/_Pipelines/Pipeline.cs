@@ -125,22 +125,21 @@ public readonly unsafe struct Pipeline : IDisposable {
         }
     }
     
-        public Pipeline(
+    public Pipeline(
         LogicalDevice device,
         VkFormat swapchainFormat,
         VkFormat depthFormat,
         PipelineCreationDescription description,
-        PipelineLayout pipelineLayout, // This takes your PipelineLayout struct instance
-        ReadOnlySpan<VkVertexInputBindingDescription> vertexBindings, // Now takes a span of bindings
-        ReadOnlySpan<VkVertexInputAttributeDescription> vertexAttributes, // Now takes a span of attributes
-        VkUtf8ReadOnlyString entryPoint = default // Default to "main" if not provided
+        PipelineLayout pipelineLayout,
+        ReadOnlySpan<VkVertexInputBindingDescription> vertexBindings,
+        ReadOnlySpan<VkVertexInputAttributeDescription> vertexAttributes,
+        VkUtf8ReadOnlyString entryPoint = default
     )
     {
         Device = device;
-        Layout = pipelineLayout; // Assign the VkPipelineLayout handle from the provided PipelineLayout struct
-        Value = VkPipeline.Null; // Initialize to null; set later in fixed block
+        Layout = pipelineLayout;
+        Value = VkPipeline.Null;
 
-        // Shader Stages (using ShaderModules from description)
         VkPipelineShaderStageCreateInfo* shaderStages = stackalloc VkPipelineShaderStageCreateInfo[2];
         shaderStages[0] = new() {
             sType = VkStructureType.PipelineShaderStageCreateInfo,
@@ -155,15 +154,14 @@ public readonly unsafe struct Pipeline : IDisposable {
             pName = entryPoint
         };
 
-        // Pin pointers to spans for Vulkan API calls
         fixed (VkVertexInputAttributeDescription* pVertexAttributes = vertexAttributes)
         fixed (VkVertexInputBindingDescription* pVertexBindings = vertexBindings)
         {
             VkPipelineVertexInputStateCreateInfo vertexInputState = new()
             {
                 sType = VkStructureType.PipelineVertexInputStateCreateInfo,
-                vertexBindingDescriptionCount = (uint)vertexBindings.Length, // Use length of binding span
-                pVertexBindingDescriptions = pVertexBindings, // Use pointer to binding span
+                vertexBindingDescriptionCount = (uint)vertexBindings.Length,
+                pVertexBindingDescriptions = pVertexBindings,
                 vertexAttributeDescriptionCount = (uint)vertexAttributes.Length,
                 pVertexAttributeDescriptions = pVertexAttributes
             };
@@ -188,7 +186,6 @@ public readonly unsafe struct Pipeline : IDisposable {
                 sType = VkStructureType.PipelineMultisampleStateCreateInfo, rasterizationSamples = VkSampleCountFlags.Count1
             };
 
-            // Depth/Stencil State configuration from description
             VkPipelineDepthStencilStateCreateInfo depthStencilState = new()
             {
                 sType = VkStructureType.PipelineDepthStencilStateCreateInfo,
@@ -196,14 +193,13 @@ public readonly unsafe struct Pipeline : IDisposable {
                 depthWriteEnable = description.DepthWriteEnable,
                 depthCompareOp = description.DepthCompareOp,
                 stencilTestEnable = description.StencilTestEnable,
-                depthBoundsTestEnable = false, // Not exposed in PipelineCreationDescription, default false
+                depthBoundsTestEnable = false,
                 minDepthBounds = 0.0f,
                 maxDepthBounds = 1.0f,
             };
 
-            // Blending State configuration from description
             VkPipelineColorBlendAttachmentState blendAttachmentState = new() {
-                colorWriteMask = VkColorComponentFlags.All, // Assuming all color channels are writable
+                colorWriteMask = VkColorComponentFlags.All,
                 blendEnable = description.BlendSettings.BlendEnable,
                 srcColorBlendFactor = (VkBlendFactor)description.BlendSettings.SourceColorBlend,
                 dstColorBlendFactor = (VkBlendFactor)description.BlendSettings.DestinationColorBlend,
@@ -222,7 +218,7 @@ public readonly unsafe struct Pipeline : IDisposable {
                 colorAttachmentCount = 1,
                 pColorAttachmentFormats = &swapchainFormat,
                 depthAttachmentFormat = depthFormat,
-                stencilAttachmentFormat = VkFormat.Undefined // Assuming no stencil attachment
+                stencilAttachmentFormat = VkFormat.Undefined
             };
 
             VkGraphicsPipelineCreateInfo pipelineCreateInfo = new()
@@ -239,8 +235,8 @@ public readonly unsafe struct Pipeline : IDisposable {
                 pDepthStencilState = &depthStencilState,
                 pColorBlendState = &colorBlendState,
                 pDynamicState = &dynamicState,
-                layout = Layout, // Use the provided VkPipelineLayout handle
-                renderPass = VkRenderPass.Null // Explicitly null for dynamic rendering
+                layout = Layout,
+                renderPass = VkRenderPass.Null
             };
 
             fixed(VkPipeline* ptr = &Value)

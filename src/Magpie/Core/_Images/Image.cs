@@ -7,14 +7,16 @@ public unsafe struct Image : IDisposable {
     public readonly uint Width;
     public readonly uint Height;
     public readonly VkFormat Format;
+    public readonly VkSampleCountFlags Samples;
 
     internal VkImage Value;
 
-    public Image(LogicalDevice device, uint width, uint height, uint depth, VkFormat format, VkImageUsageFlags flags) {
+    public Image(LogicalDevice device, uint width, uint height, uint depth, VkFormat format, VkImageUsageFlags flags, VkSampleCountFlags samples = VkSampleCountFlags.Count1) {
         Device = device;
         Width = width;
         Height = height;
         Format = format;
+        Samples = samples;
 
         var createInfo = new VkImageCreateInfo
         {
@@ -26,7 +28,7 @@ public unsafe struct Image : IDisposable {
             arrayLayers = 1,
             usage = flags,
             flags = default,
-            samples = VkSampleCountFlags.Count1,
+            samples = samples,
             sharingMode = VkSharingMode.Exclusive
         };
         

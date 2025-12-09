@@ -10,7 +10,7 @@ public unsafe struct DepthImage : IDisposable {
     public ImageView ImageView;
     public VkFormat Format;
 
-    public DepthImage(LogicalDevice device, uint width, uint height, CmdPool commandPool, Queue graphicsQueue) {
+    public DepthImage(LogicalDevice device, uint width, uint height, CmdPool commandPool, Queue graphicsQueue, VkSampleCountFlags samples = VkSampleCountFlags.Count1) {
         Device = device;
         Format = commandPool.Device.GetDepthFormat();
 
@@ -18,7 +18,8 @@ public unsafe struct DepthImage : IDisposable {
             device,
             width, height, 1,
             Format,
-            VkImageUsageFlags.DepthStencilAttachment | VkImageUsageFlags.TransientAttachment
+            VkImageUsageFlags.DepthStencilAttachment | VkImageUsageFlags.TransientAttachment,
+            samples
         );
 
         Memory = new DeviceMemory(Image, VkMemoryPropertyFlags.DeviceLocal);
