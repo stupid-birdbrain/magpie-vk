@@ -40,7 +40,7 @@ public struct BlendSettings(
     BlendOperation alphaBlendOperation) {
         
     public static readonly BlendSettings Opaque = new(false, BlendFactor.One, BlendFactor.Zero, BlendOperation.Add, BlendFactor.One, BlendFactor.Zero, BlendOperation.Add);
-    public static readonly BlendSettings AlphaBlend = new(true, BlendFactor.One, BlendFactor.OneMinusSourceAlpha, BlendOperation.Add, BlendFactor.One, BlendFactor.OneMinusSourceAlpha, BlendOperation.Add);
+    public static readonly BlendSettings AlphaBlend = new(true, BlendFactor.SourceAlpha, BlendFactor.OneMinusSourceAlpha, BlendOperation.Add, BlendFactor.One, BlendFactor.Zero, BlendOperation.Add);
     public static readonly BlendSettings Additive = new(true, BlendFactor.SourceAlpha, BlendFactor.One, BlendOperation.Add, BlendFactor.SourceAlpha, BlendFactor.One, BlendOperation.Add);
     public static readonly BlendSettings NonPremultiplied = new(true, BlendFactor.SourceAlpha, BlendFactor.OneMinusSourceAlpha, BlendOperation.Add, BlendFactor.SourceAlpha, BlendFactor.OneMinusSourceAlpha, BlendOperation.Add);
 

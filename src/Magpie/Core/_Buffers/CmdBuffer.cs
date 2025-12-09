@@ -52,12 +52,28 @@ public unsafe struct CmdBuffer : IDisposable {
         vkCmdCopyBufferToImage(Value, buffer, image, VkImageLayout.TransferDstOptimal, 1, &region);
     }
     
+    public void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong srcOffset, ulong dstOffset, ulong size) {
+        VkBufferCopy region = new() {
+            srcOffset = srcOffset,
+            dstOffset = dstOffset,
+            size = size
+        };
+        vkCmdCopyBuffer(Value, srcBuffer, dstBuffer, 1, &region);
+    }
+    
     public void BindPipeline(Pipeline pipeline) 
         => vkCmdBindPipeline(Value, VkPipelineBindPoint.Graphics, pipeline);
     
     public void BindVertexBuffer<TVertex>(in VertexBuffer<TVertex> vertexBuffer, uint firstBinding = 0, ulong offset = 0) where TVertex : unmanaged {
         var bufferHandle = vertexBuffer.Buffer.Value;
         vkCmdBindVertexBuffers(Value, firstBinding, 1, &bufferHandle, &offset);
+    }
+    
+    public readonly void BindVertexBuffers(uint firstBinding, ReadOnlySpan<VkBuffer> buffers, ReadOnlySpan<ulong> offsets) {
+        fixed (VkBuffer* pBuffers = buffers)
+        fixed (ulong* pOffsets = offsets) {
+            vkCmdBindVertexBuffers(Value, firstBinding, (uint)buffers.Length, pBuffers, pOffsets);
+        }
     }
 
     public void BindIndexBuffer(in IndexBuffer indexBuffer, ulong offset = 0, VkIndexType indexType = VkIndexType.Uint32) 

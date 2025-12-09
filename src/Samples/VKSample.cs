@@ -19,10 +19,14 @@ using Image = Magpie.Core.Image;
 namespace Samples;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PushConstantMatrices {
-    public Matrix4x4 Model;
+public struct PushConstants {
     public Matrix4x4 View;
     public Matrix4x4 Proj;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct InstanceTransform {
+    public Matrix4x4 Model;
 }
 
 internal sealed unsafe class VkSample {
@@ -43,6 +47,12 @@ internal sealed unsafe class VkSample {
 
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
+    
+    private const int MAX_INSTANCES = 40000;
+    private int _instanceCount = 40000;
+    private InstanceTransform[] _instanceTransforms = new InstanceTransform[MAX_INSTANCES];
+    private Buffer _instanceBuffer;
+    private DeviceMemory _instanceMemory;
 
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
@@ -138,57 +148,29 @@ internal sealed unsafe class VkSample {
         var data = _compiler.ReflectShader(_compiler.CompileShader(@"resources/base_textured/base.frag", ShaderKind.Fragment, true).ToArray());
         Console.WriteLine(data.ToString());
         
-        // foreach(var pc in data.PushConstants) {
-        //     Console.WriteLine(pc.ToString());
-        //     foreach(var member in pc.Members) {
-        //         Console.WriteLine(member.ToString());
-        //     }
-        // }
-        //
-        // foreach(var ubo in data.UniformBuffers) {
-        //     Console.WriteLine(ubo.ToString());
-        // }
-        //
-        // foreach(var ssbo in data.StorageBuffers) {
-        //     foreach(var member in ssbo.Members) {
-        //         Console.WriteLine(member.ToString());
-        //     }
-        //     Console.WriteLine(ssbo.ToString());
-        // }
-        
         var vertmodule = new ShaderModule(_vkDevice, vertShaderCode.ToArray());
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
         
         VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
-            new(
-                location: 0,
-                binding: 0,
-                format: Vector3.AsFormat(),
-                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Position))
-            ),
-            new(
-                location: 1,
-                binding: 0,
-                format: Vector3.AsFormat(),
-                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Color))
-            ),
-            new(
-                location: 2,
-                binding: 0,
-                format: Vector2.AsFormat(),
-                offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.TexCoord))
-            )
+            new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Position))),
+            new(location: 1, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Color))),
+            new(location: 2, binding: 0, format: Vector2.AsFormat(), offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.TexCoord)))
         };
 
-        Span<DescriptorSetLayoutBinding> descriptorSetBindings = stackalloc DescriptorSetLayoutBinding[1];
+        uint instanceBufferSize = (uint)(Marshal.SizeOf<InstanceTransform>() * MAX_INSTANCES);
+        _instanceBuffer = new(_vkDevice, instanceBufferSize, VkBufferUsageFlags.StorageBuffer);
+        _instanceMemory = new DeviceMemory(_instanceBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+
+        Span<DescriptorSetLayoutBinding> descriptorSetBindings = stackalloc DescriptorSetLayoutBinding[2];
         descriptorSetBindings[0] = new(0, VkDescriptorType.CombinedImageSampler, 1, VkShaderStageFlags.Fragment);
+        descriptorSetBindings[1] = new(1, VkDescriptorType.StorageBuffer, 1, VkShaderStageFlags.Vertex);
         _descriptorSetLayout = new(_vkDevice, descriptorSetBindings);
 
         VkPushConstantRange vkPushConstantRange = new VkPushConstantRange {
             stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             offset = 0,
-            size = (uint)Marshal.SizeOf<PushConstantMatrices>()
+            size = (uint)Marshal.SizeOf<PushConstants>()
         };
         var pushConstant = new PushConstant(vkPushConstantRange.offset, vkPushConstantRange.size, vkPushConstantRange.stageFlags);
 
@@ -198,7 +180,7 @@ internal sealed unsafe class VkSample {
             VertexShader = vertmodule,
             FragmentShader = fragmodule,
 
-            BlendSettings = BlendSettings.Opaque,
+            BlendSettings = BlendSettings.AlphaBlend,
             DepthTestEnable = true,
             DepthWriteEnable = true,
             DepthCompareOp = VkCompareOp.Less,
@@ -288,6 +270,7 @@ internal sealed unsafe class VkSample {
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
         _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler);
+        _descriptorSet.Update(_instanceBuffer, VkDescriptorType.StorageBuffer, 1);
 
         _keyboard = new();
         _mouse = new();
@@ -310,8 +293,7 @@ internal sealed unsafe class VkSample {
                         break;
                     case (uint)SDL.EventType.MouseMotion:
                         _mouse.SetPosition(new Vector2(@event.Motion.X, @event.Motion.Y));
-                        if (_isRelativeMouseMode)
-                        {
+                        if (_isRelativeMouseMode) {
                             _mouse.AddRelativeDelta(new Vector2(@event.Motion.XRel, @event.Motion.YRel));
                         }
                         
@@ -389,7 +371,7 @@ internal sealed unsafe class VkSample {
     }
 
     private void HandleContinuousInput() {
-        float moveSpeed = _cameraSpeed * Time.DeltaTime;
+        float moveSpeed = _cameraSpeed * Time.DeltaTime * 6;
 
         Vector3 currentCameraFront = _cameraFront;
         Vector3 flatCameraFront = Vector3.Normalize(new Vector3(_cameraFront.X, 0, _cameraFront.Z));
@@ -418,9 +400,9 @@ internal sealed unsafe class VkSample {
     void Draw() {
         Debug.Assert(Graphics != null);
 
-        if(!Graphics.Begin(Colors.SlateGray)) return;
+        if(!Graphics.Begin(Colors.LightGray)) return;
 
-        UpdatePushConstants();
+        UpdateShaderData();
 
         var cmd = Graphics.RequestCurrentCommandBuffer();
 
@@ -429,7 +411,7 @@ internal sealed unsafe class VkSample {
         Span<DescriptorSet> descriptorSets = stackalloc DescriptorSet[1];
         descriptorSets[0] = _descriptorSet;
 
-        cmd.BindDescriptorSets(_pipeline.Layout, descriptorSets);
+        cmd.BindDescriptorSets(_pipelineLayout, descriptorSets);
 
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         cmd.SetViewport(new(0, 0, extent.X, extent.Y));
@@ -438,7 +420,7 @@ internal sealed unsafe class VkSample {
         cmd.BindVertexBuffer(_vertexBuffer);
         cmd.BindIndexBuffer(_indexBuffer);
         
-        cmd.DrawIndexed(_indexBuffer.IndexCount);
+        cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
         Graphics.End();
     }
@@ -486,22 +468,19 @@ internal sealed unsafe class VkSample {
         _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
     }
 
-    private void UpdatePushConstants() {
+    private void UpdateShaderData() {
         var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
-
         var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
         float aspectRatio = extent.X / extent.Y;
         Matrix4x4 proj = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 2.5f,
+            MathF.PI / 1.5f,
             aspectRatio,
             0.1f,
             100.0f
         );
-
         proj.M22 *= -1;
 
-        PushConstantMatrices pc = new() {
-            Model = Matrix4x4.Identity,
+        PushConstants globalPushConstants = new() {
             View = view,
             Proj = proj
         };
@@ -509,12 +488,44 @@ internal sealed unsafe class VkSample {
         var cmd = Graphics!.RequestCurrentCommandBuffer();
         Vulkan.vkCmdPushConstants(
             cmd,
-            _pipeline.Layout,
+            _pipelineLayout,
             VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             0,
-            (uint)Marshal.SizeOf<PushConstantMatrices>(),
-            &pc
+            (uint)Marshal.SizeOf<PushConstants>(),
+            &globalPushConstants
         );
+        
+        float currentTime = Time.GlobalTime;
+        int sideLength = (int)MathF.Floor(MathF.Pow(MAX_INSTANCES, 1.0f / 3.0f));
+        float cubeSpacing = 1.1f;
+        float totalSideLength = sideLength * cubeSpacing;
+        float offset = -totalSideLength / 2.0f + cubeSpacing / 2.0f; 
+
+        int instanceIndex = 0;
+        for (int x = 0; x < sideLength; x++) {
+            for (int y = 0; y < sideLength; y++) {
+                for (int z = 0; z < sideLength; z++) {
+                    if (instanceIndex >= _instanceCount) break;
+
+                    var position = new Vector3(
+                        x * cubeSpacing + offset,
+                        y * cubeSpacing + offset,
+                        z * cubeSpacing + offset
+                    );
+
+                    var translation = Matrix4x4.CreateTranslation(position);
+                    
+                    var scale = Matrix4x4.CreateScale(0.35f);
+
+                    _instanceTransforms[instanceIndex].Model = scale * translation;
+                    instanceIndex++;
+                }
+                if (instanceIndex >= _instanceCount) break;
+            }
+            if (instanceIndex >= _instanceCount) break;
+        }
+
+        _instanceMemory.CopyFrom(new ReadOnlySpan<InstanceTransform>(_instanceTransforms, 0, _instanceCount));
     }
 
     private void Dispose() {

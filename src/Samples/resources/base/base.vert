@@ -10,13 +10,19 @@ layout(location = 1) out vec2 fragTexCoord;
 layout(location = 2) out float fragViewZ;
 
 layout(push_constant) uniform PushConstants {
-    mat4 model;
     mat4 view;
     mat4 proj;
 } pc;
 
+#define MAX_INSTANCES 10000
+layout (std430, binding = 1) readonly buffer InstanceBuffer {
+    mat4 modelMatrices[MAX_INSTANCES];
+} instanceBuffer;
+
 void main() {
-    vec4 viewPos = pc.view * pc.model * vec4(inPosition, 1.0);
+    mat4 instanceModel = instanceBuffer.modelMatrices[gl_InstanceIndex];
+
+    vec4 viewPos = pc.view * instanceModel * vec4(inPosition, 1.0);
     gl_Position = pc.proj * viewPos;
 
     fragColor = inColor.rgb;
