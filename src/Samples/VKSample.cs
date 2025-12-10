@@ -263,8 +263,9 @@ internal sealed unsafe class VkSample {
         _vertexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, sourceVertexData);
         _indexBuffer = new(_vkDevice, Graphics.GraphicsCommandPool, Graphics.GraphicsQueue, MemoryMarshal.AsBytes(sourceIndexData));
 
-        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
+        Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[2];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
+        poolSizes[1] = new DescriptorPoolSize(VkDescriptorType.StorageBuffer, MAX_INSTANCES);
         _descriptorPool = new(_vkDevice, poolSizes, 1);
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
