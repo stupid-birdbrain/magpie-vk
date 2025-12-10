@@ -43,6 +43,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     public CmdPool GraphicsCommandPool => _graphicsCmdPool;
     public Queue GraphicsQueue => _graphicsQueue;
+    public LogicalDevice LogicalDevice => _logicalDevice;
     
     public int CurrentFrameIndex => _currentFrame;
     public DepthImage DepthImage => _depthImage;
