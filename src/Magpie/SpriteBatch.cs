@@ -31,7 +31,7 @@ public sealed class SpriteBatch : IDisposable {
     private PipelineLayout _pipelineLayout;
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
-    private DescriptorSet _descriptorSet;
+    private DescriptorSet[] _descriptorSets; 
 
     private BufferDeviceMemory _vertexBuffer;
     private BufferDeviceMemory _indexBuffer;
@@ -44,15 +44,11 @@ public sealed class SpriteBatch : IDisposable {
     private SpriteTexture? _currentTexture;
     private bool _isActive;
     private bool _buffersInitialized;
-    private bool _descriptorSetInitialized;
     private SpriteSortMode _sortMode;
     private Matrix4x4 _transform;
     private CmdBuffer _commandBuffer;
 
     public SpriteBatch(GraphicsDevice graphicsDevice, ReadOnlySpan<byte> vertexShaderCode, ReadOnlySpan<byte> fragmentShaderCode, int initialSpriteCapacity = 256) {
-        if (graphicsDevice is null) {
-            throw new ArgumentNullException(nameof(graphicsDevice));
-        }
         if (vertexShaderCode.IsEmpty) {
             throw new ArgumentException("Vertex shader code cannot be empty.", nameof(vertexShaderCode));
         }
@@ -64,11 +60,8 @@ public sealed class SpriteBatch : IDisposable {
         _device = graphicsDevice.LogicalDevice;
         _initialCapacity = Math.Max(1, initialSpriteCapacity);
 
-        byte[] vertexBytes = vertexShaderCode.ToArray();
-        byte[] fragmentBytes = fragmentShaderCode.ToArray();
-
-        using ShaderModule vertexModule = new(_device, vertexBytes);
-        using ShaderModule fragmentModule = new(_device, fragmentBytes);
+        using ShaderModule vertexModule = new(_device, vertexShaderCode.ToArray());
+        using ShaderModule fragmentModule = new(_device, fragmentShaderCode.ToArray());
 
         _descriptorSetLayout = new DescriptorSetLayout(_device, 0, VkDescriptorType.CombinedImageSampler, VkShaderStageFlags.Fragment);
 
@@ -114,10 +107,13 @@ public sealed class SpriteBatch : IDisposable {
         );
 
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
-        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 1);
-        _descriptorPool = new DescriptorPool(_device, poolSizes, 1);
-        _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
-        _descriptorSetInitialized = true;
+        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, GraphicsDevice.MAX_FRAMES_IN_FLIGHT); 
+        _descriptorPool = new DescriptorPool(_device, poolSizes, GraphicsDevice.MAX_FRAMES_IN_FLIGHT);
+        
+        _descriptorSets = new DescriptorSet[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
+        for (int i = 0; i < GraphicsDevice.MAX_FRAMES_IN_FLIGHT; i++) {
+            _descriptorSets[i] = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
+        }
 
         EnsureCapacity(_initialCapacity);
     }
@@ -277,16 +273,16 @@ public sealed class SpriteBatch : IDisposable {
         bottomRight += position;
         bottomLeft += position;
 
-        Vector2 texCoordTL = new(u0, v0);
-        Vector2 texCoordTR = new(u1, v0);
-        Vector2 texCoordBR = new(u1, v1);
-        Vector2 texCoordBL = new(u0, v1);
+        Vector2 texCoordTl = new(u0, v0);
+        Vector2 texCoordTr = new(u1, v0);
+        Vector2 texCoordBr = new(u1, v1);
+        Vector2 texCoordBl = new(u0, v1);
 
         int vertexBase = _spriteCount * 4;
-        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), colorVec, texCoordTL);
-        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), colorVec, texCoordTR);
-        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), colorVec, texCoordBR);
-        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), colorVec, texCoordBL);
+        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), colorVec, texCoordTl);
+        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), colorVec, texCoordTr);
+        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), colorVec, texCoordBr);
+        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), colorVec, texCoordBl);
 
         _spriteCount++;
         if (_sortMode == SpriteSortMode.Immediate) {
@@ -296,7 +292,7 @@ public sealed class SpriteBatch : IDisposable {
 
     private void EnsureTextureBound(SpriteTexture texture) {
         if (_currentTexture is null) {
-            _descriptorSet.Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
+            _descriptorSets[_graphicsDevice.CurrentFrameIndex].Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
             _currentTexture = texture;
         }
     }
@@ -371,9 +367,10 @@ public sealed class SpriteBatch : IDisposable {
         vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &offset);
         vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer, 0, VkIndexType.Uint32);
 
-        Span<DescriptorSet> descriptorSets = stackalloc DescriptorSet[1];
-        descriptorSets[0] = _descriptorSet;
-        _commandBuffer.BindDescriptorSets(_pipelineLayout, descriptorSets);
+        var currentFrameDescriptorSet = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
+        Span<DescriptorSet> descriptorSetsToBind = stackalloc DescriptorSet[1];
+        descriptorSetsToBind[0] = currentFrameDescriptorSet;
+        _commandBuffer.BindDescriptorSets(_pipelineLayout, descriptorSetsToBind);
 
         vkCmdDrawIndexed(_commandBuffer, (uint)indexCount, 1, 0, 0, 0);
 
@@ -382,9 +379,10 @@ public sealed class SpriteBatch : IDisposable {
 
     private unsafe void PushTransform() {
         Matrix4x4 transform = _transform;
+        
         vkCmdPushConstants(
             _commandBuffer,
-            _pipelineLayout,
+            _pipelineLayout.Value, 
             VkShaderStageFlags.Vertex,
             0,
             (uint)Unsafe.SizeOf<Matrix4x4>(),
@@ -422,9 +420,8 @@ public sealed class SpriteBatch : IDisposable {
             _isActive = false;
         }
 
-        if (_descriptorSetInitialized) {
-            _descriptorSet.Dispose();
-            _descriptorSetInitialized = false;
+        foreach (var ds in _descriptorSets) {
+            ds.Dispose();
         }
 
         _descriptorPool.Dispose();

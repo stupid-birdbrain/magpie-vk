@@ -10,7 +10,7 @@ using Semaphore = Magpie.Core.Semaphore;
 namespace Magpie;
 
 public sealed unsafe class GraphicsDevice : IDisposable {
-    private const int max_frames_in_flight = 2;
+    public const int MAX_FRAMES_IN_FLIGHT = 2;
 
     public VulkanInstance Instance;
     private Swapchain _mainSwapchain;
@@ -43,10 +43,10 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     public CmdPool GraphicsCommandPool => _graphicsCmdPool;
     public Queue GraphicsQueue => _graphicsQueue;
-    public LogicalDevice LogicalDevice => _logicalDevice;
-    
-    public int CurrentFrameIndex => _currentFrame;
+    public int CurrentFrameIndex => _currentFrame; // Exposed for SpriteBatch to get current frame's descriptor set
+    public LogicalDevice LogicalDevice => _logicalDevice; // Exposed for SpriteBatch constructor
     public DepthImage DepthImage => _depthImage;
+    
 
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
         Instance = instance;
@@ -63,11 +63,11 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _graphicsCmdPool = new(_logicalDevice, _graphicsQueue);
         Console.WriteLine($"main cmd pool created!");
 
-        _mainCommandBuffers = new CmdBuffer[max_frames_in_flight];
-        _imageAvailableSemaphores = new Semaphore[max_frames_in_flight];
-        _inFlightFences = new Fence[max_frames_in_flight];
+        _mainCommandBuffers = new CmdBuffer[MAX_FRAMES_IN_FLIGHT];
+        _imageAvailableSemaphores = new Semaphore[MAX_FRAMES_IN_FLIGHT];
+        _inFlightFences = new Fence[MAX_FRAMES_IN_FLIGHT];
 
-        for (int i = 0; i < max_frames_in_flight; i++) {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             _mainCommandBuffers[i] = _graphicsCmdPool.CreateCommandBuffer();
             _imageAvailableSemaphores[i] = new(_logicalDevice);
             _inFlightFences[i] = new(_logicalDevice);
@@ -231,7 +231,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         }
 
         _isFrameStarted = false;
-        _currentFrame = (_currentFrame + 1) % max_frames_in_flight;
+        _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
     
     private void CreateSwapchain() {
