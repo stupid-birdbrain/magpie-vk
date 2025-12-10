@@ -65,10 +65,8 @@ internal sealed unsafe class VkSample {
     private Vector3 _cameraUp = Vector3.UnitY;
     private float _cameraSpeed = 1.0f;
 
-    private Image _textureImage;
-    private DeviceMemory _textureImageMemory;
-    private ImageView _textureImageView;
-    private Sampler _textureSampler;
+    private SpriteBatch? _spriteBatch;
+    private SpriteTexture? _sprite;
 
     private Stopwatch _stopwatch;
     private int _frameCount;
@@ -138,7 +136,7 @@ internal sealed unsafe class VkSample {
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
 
         Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
-        CreateTextureImage("resources/hashbrown.png");
+        _sprite = CreateTextureImage("resources/hashbrown.png");
 
         var entryPoint = "main"u8;
 
@@ -270,8 +268,16 @@ internal sealed unsafe class VkSample {
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
-        _descriptorSet.Update(_textureImageView, _textureSampler, VkDescriptorType.CombinedImageSampler);
+        if (_sprite is null) {
+            throw new InvalidOperationException("texture was not created before descriptor setup.");
+        }
+
+        _descriptorSet.Update(_sprite.ImageView, _sprite.Sampler, VkDescriptorType.CombinedImageSampler);
         _descriptorSet.Update(_instanceBuffer, VkDescriptorType.StorageBuffer, 1);
+
+        var spriteVertexCode = _compiler.CompileShader("resources/spritebatch/spritebatch.vert", ShaderKind.Vertex, true).ToArray();
+        var spriteFragmentCode = _compiler.CompileShader("resources/spritebatch/spritebatch.frag", ShaderKind.Fragment, true).ToArray();
+        _spriteBatch = new SpriteBatch(Graphics!, spriteVertexCode, spriteFragmentCode, 256);
 
         _keyboard = new();
         _mouse = new();
@@ -399,13 +405,17 @@ internal sealed unsafe class VkSample {
     }
 
     void Draw() {
-        Debug.Assert(Graphics != null);
+        var graphics = Graphics;
+        Debug.Assert(graphics != null);
+        if (graphics is null) {
+            return;
+        }
 
-        if(!Graphics.Begin(Colors.LightGray)) return;
+        if(!graphics.Begin(Colors.LightGray)) return;
 
         UpdateShaderData();
 
-        var cmd = Graphics.RequestCurrentCommandBuffer();
+        var cmd = graphics.RequestCurrentCommandBuffer();
 
         cmd.BindPipeline(_pipeline);
         
@@ -414,7 +424,7 @@ internal sealed unsafe class VkSample {
 
         cmd.BindDescriptorSets(_pipelineLayout, descriptorSets);
 
-        var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
+        var extent = new Vector2(graphics.MainSwapchain.Width, graphics.MainSwapchain.Height);
         cmd.SetViewport(new(0, 0, extent.X, extent.Y));
         cmd.SetScissor(new(0, 0, (uint)extent.X, (uint)extent.Y));
 
@@ -423,10 +433,32 @@ internal sealed unsafe class VkSample {
         
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
-        Graphics.End();
+        if (_spriteBatch is not null && _sprite is not null) {
+            using var sprite = _spriteBatch.Begin(SpriteSortMode.Deferred);
+            sprite.Draw(_sprite, new Vector2(32f, 32f), Colors.White);
+
+            float rotation = Time.GlobalTime * 0.75f;
+            Vector2 rotatedPosition = new(extent.X - 160f, 120f);
+            sprite.Draw(
+                _sprite,
+                rotatedPosition,
+                null,
+                Colors.White,
+                rotation,
+                new Vector2(_sprite.Width / 2f, _sprite.Height / 2f),
+                new Vector2(0.75f),
+                SpriteEffects.FlipHorizontally,
+                0.25f
+            );
+
+            Standard.Rectangle banner = new(extent.X * 0.5f - 200f, extent.Y - 180f, 400f, 160f);
+            sprite.Draw(_sprite, banner, new Color(Colors.White, 192));
+        }
+
+        graphics.End();
     }
 
-    private void CreateTextureImage(string path) {
+    private SpriteTexture CreateTextureImage(string path) {
         using Image<Rgba32> imageSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
         imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
 
@@ -439,7 +471,7 @@ internal sealed unsafe class VkSample {
         using var stagingMemory = new DeviceMemory(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
         stagingMemory.CopyFrom(pixelSpan);
 
-        _textureImage = new Image(
+        Image textureImage = new Image(
             _vkDevice,
             (uint)imageSharp.Width,
             (uint)imageSharp.Height,
@@ -448,16 +480,16 @@ internal sealed unsafe class VkSample {
             VkImageUsageFlags.TransferDst | VkImageUsageFlags.Sampled
         );
 
-        _textureImageMemory = new DeviceMemory(_textureImage, VkMemoryPropertyFlags.DeviceLocal);
+        DeviceMemory textureMemory = new DeviceMemory(textureImage, VkMemoryPropertyFlags.DeviceLocal);
 
         {
             using var fence = Graphics!.RequestFence(VkFenceCreateFlags.None);
             var cmd = Graphics.AllocateCommandBuffer(true);
             cmd.Begin();
 
-            cmd.TransitionImageLayout(_textureImage, VkImageLayout.Undefined, VkImageLayout.TransferDstOptimal);
-            cmd.CopyBufferToImage(stagingBuffer, _textureImage, (uint)imageSharp.Width, (uint)imageSharp.Height, 0, 0);
-            cmd.TransitionImageLayout(_textureImage, VkImageLayout.TransferDstOptimal, VkImageLayout.ShaderReadOnlyOptimal);
+            cmd.TransitionImageLayout(textureImage, VkImageLayout.Undefined, VkImageLayout.TransferDstOptimal);
+            cmd.CopyBufferToImage(stagingBuffer, textureImage, (uint)imageSharp.Width, (uint)imageSharp.Height, 0, 0);
+            cmd.TransitionImageLayout(textureImage, VkImageLayout.TransferDstOptimal, VkImageLayout.ShaderReadOnlyOptimal);
 
             cmd.End();
             Graphics.Submit(cmd, fence);
@@ -465,13 +497,16 @@ internal sealed unsafe class VkSample {
             cmd.Dispose();
         }
 
-        _textureImageView = new ImageView(_textureImage);
-        _textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
+        ImageView textureView = new ImageView(textureImage);
+        Sampler textureSampler = new Sampler(_vkDevice, new SamplerCreateParameters(VkFilter.Nearest, VkSamplerAddressMode.Repeat));
+
+        return new SpriteTexture(textureImage, textureMemory, textureView, textureSampler);
     }
 
     private void UpdateShaderData() {
+        var graphics = Graphics!;
         var view = Matrix4x4.CreateLookAt(_cameraPosition, _cameraPosition + _cameraFront, _cameraUp);
-        var extent = new Vector2(Graphics.MainSwapchain.Width, Graphics.MainSwapchain.Height);
+        var extent = new Vector2(graphics.MainSwapchain.Width, graphics.MainSwapchain.Height);
         float aspectRatio = extent.X / extent.Y;
         Matrix4x4 proj = Matrix4x4.CreatePerspectiveFieldOfView(
             MathF.PI / 1.5f,
@@ -486,7 +521,7 @@ internal sealed unsafe class VkSample {
             Proj = proj
         };
 
-        var cmd = Graphics!.RequestCurrentCommandBuffer();
+        var cmd = graphics.RequestCurrentCommandBuffer();
         Vulkan.vkCmdPushConstants(
             cmd,
             _pipelineLayout,
@@ -532,10 +567,8 @@ internal sealed unsafe class VkSample {
     private void Dispose() {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
 
-        _textureSampler.Dispose();
-        _textureImageView.Dispose();
-        _textureImage.Dispose();
-        _textureImageMemory.Dispose();
+        _spriteBatch?.Dispose();
+        _sprite?.Dispose();
 
         _pipeline.Dispose();
         _pipelineLayout.Dispose();
