@@ -7,15 +7,10 @@ namespace Magpie.Core;
 /// <summary>
 ///     Records commands to be submitted to a queue.
 /// </summary>
-public unsafe struct CmdBuffer : IDisposable {
-    public CmdPool Pool;
-    internal VkCommandBuffer Value;
-    
-    public CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) {
-        Pool = cmdPool;
-        Value = value;
-    }
-    
+public unsafe struct CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) : IDisposable {
+    public CmdPool Pool = cmdPool;
+    internal VkCommandBuffer Value = value;
+
     public unsafe void Begin(VkCommandBufferUsageFlags flags = VkCommandBufferUsageFlags.OneTimeSubmit) {
         VkCommandBufferBeginInfo beginInfo = new()
         {
@@ -50,6 +45,18 @@ public unsafe struct CmdBuffer : IDisposable {
         };
 
         vkCmdCopyBufferToImage(Value, buffer, image, VkImageLayout.TransferDstOptimal, 1, &region);
+    }
+    
+    public void CopyImageToBuffer(Image image, Buffer buffer, uint width, uint height, uint dstOffset, uint mipLevel, uint layerCount = 1) {
+        VkBufferImageCopy region = new() {
+            bufferOffset = dstOffset,
+            bufferRowLength = 0,
+            bufferImageHeight = 0,
+            imageSubresource = new VkImageSubresourceLayers(VkImageAspectFlags.Color, mipLevel, 0, layerCount),
+            imageOffset = new VkOffset3D(0, 0, 0),
+            imageExtent = new VkExtent3D(width, height, 1)
+        };
+        vkCmdCopyImageToBuffer(Value, image, VkImageLayout.TransferSrcOptimal, buffer, 1, &region);
     }
     
     public void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong srcOffset, ulong dstOffset, ulong size) {
@@ -111,50 +118,43 @@ public unsafe struct CmdBuffer : IDisposable {
         VkPipelineStageFlags sourceStage;
         VkPipelineStageFlags destinationStage;
 
-        if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.TransferDstOptimal)
-        {
+        if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.TransferDstOptimal) {
             barrier.srcAccessMask = 0;
             barrier.dstAccessMask = VkAccessFlags.TransferWrite;
             sourceStage = VkPipelineStageFlags.TopOfPipe;
             destinationStage = VkPipelineStageFlags.Transfer;
         }
-        else if (oldLayout == VkImageLayout.TransferDstOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal)
-        {
+        else if (oldLayout == VkImageLayout.TransferDstOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal) {
             barrier.srcAccessMask = VkAccessFlags.TransferWrite;
             barrier.dstAccessMask = VkAccessFlags.ShaderRead;
             sourceStage = VkPipelineStageFlags.Transfer;
             destinationStage = VkPipelineStageFlags.FragmentShader;
         }
-        else if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.DepthStencilAttachmentOptimal)
-        {
+        else if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.DepthStencilAttachmentOptimal) {
             barrier.srcAccessMask = 0;
             barrier.dstAccessMask = VkAccessFlags.DepthStencilAttachmentRead | VkAccessFlags.DepthStencilAttachmentWrite;
             sourceStage = VkPipelineStageFlags.TopOfPipe;
             destinationStage = VkPipelineStageFlags.EarlyFragmentTests;
         }
-        else if (oldLayout == VkImageLayout.ColorAttachmentOptimal && newLayout == VkImageLayout.PresentSrcKHR)
-        {
+        else if (oldLayout == VkImageLayout.ColorAttachmentOptimal && newLayout == VkImageLayout.PresentSrcKHR) {
             barrier.srcAccessMask = VkAccessFlags.ColorAttachmentWrite;
             barrier.dstAccessMask = 0;
             sourceStage = VkPipelineStageFlags.ColorAttachmentOutput;
             destinationStage = VkPipelineStageFlags.BottomOfPipe;
         }
-        else if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.ColorAttachmentOptimal)
-        {
+        else if (oldLayout == VkImageLayout.Undefined && newLayout == VkImageLayout.ColorAttachmentOptimal) {
             barrier.srcAccessMask = 0;
             barrier.dstAccessMask = VkAccessFlags.ColorAttachmentWrite;
             sourceStage = VkPipelineStageFlags.TopOfPipe;
             destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
         }
-        else if (oldLayout == VkImageLayout.TransferDstOptimal && newLayout == VkImageLayout.TransferSrcOptimal)
-        {
-            barrier.srcAccessMask = VkAccessFlags.TransferWrite;
+        else if (oldLayout == VkImageLayout.ShaderReadOnlyOptimal && newLayout == VkImageLayout.TransferSrcOptimal) {
+            barrier.srcAccessMask = VkAccessFlags.ShaderRead;
             barrier.dstAccessMask = VkAccessFlags.TransferRead;
-            sourceStage = VkPipelineStageFlags.Transfer;
+            sourceStage = VkPipelineStageFlags.FragmentShader;
             destinationStage = VkPipelineStageFlags.Transfer;
         }
-        else if (oldLayout == VkImageLayout.TransferSrcOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal)
-        {
+        else if (oldLayout == VkImageLayout.TransferSrcOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal) {
             barrier.srcAccessMask = VkAccessFlags.TransferRead;
             barrier.dstAccessMask = VkAccessFlags.ShaderRead;
             sourceStage = VkPipelineStageFlags.Transfer;

@@ -32,7 +32,7 @@ void main() {
     vec4 baseFragmentColor = texColor * vec4(inColor, 1.0);
 
     float currentDistance = -fragViewZ;
-    
+
     const float fogStartDistance = 5.0f;
     const float fogEndDistance = 9.0f;
     const vec4 fogColor = vec4(0.f);

@@ -61,10 +61,15 @@ public readonly unsafe struct Pipeline : IDisposable {
                 frontFace = description.FrontFace
             };
             
-            VkPipelineMultisampleStateCreateInfo multisampleState = new() {
-                sType = VkStructureType.PipelineMultisampleStateCreateInfo, 
+            VkPipelineMultisampleStateCreateInfo multisampleState = new()
+            {
+                sType = VkStructureType.PipelineMultisampleStateCreateInfo,
                 rasterizationSamples = VkSampleCountFlags.Count1,
-                alphaToCoverageEnable = true
+                alphaToCoverageEnable = false,
+                alphaToOneEnable = false,
+                sampleShadingEnable = false,
+                minSampleShading = 1.0f,
+                pSampleMask = null
             };
 
             VkPipelineDepthStencilStateCreateInfo depthStencilState = new() {
