@@ -48,8 +48,8 @@ internal sealed unsafe class VkSample {
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
     
-    private const int MAX_INSTANCES = 40000;
-    private int _instanceCount = 40000;
+    private const int MAX_INSTANCES = 12;
+    private int _instanceCount = 12;
     private InstanceTransform[] _instanceTransforms = new InstanceTransform[MAX_INSTANCES];
     private Buffer _instanceBuffer;
     private DeviceMemory _instanceMemory;
@@ -185,7 +185,7 @@ internal sealed unsafe class VkSample {
             DepthWriteEnable = true,
             DepthCompareOp = VkCompareOp.Less,
             StencilTestEnable = false,
-            
+    
             CullMode = VkCullModeFlags.None,
             FrontFace = VkFrontFace.CounterClockwise,
             PolygonMode = VkPolygonMode.Fill,

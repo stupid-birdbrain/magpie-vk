@@ -39,10 +39,6 @@
       <None Update="resources\hashbrown.png">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
-        
-      <None Update="resources\bluh.glsl">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
     </ItemGroup>
     
 
