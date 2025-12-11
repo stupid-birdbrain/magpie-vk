@@ -407,6 +407,7 @@ internal sealed unsafe class VkSample {
     void Draw() {
         var graphics = Graphics;
         Debug.Assert(graphics != null);
+        Debug.Assert(_spriteBatch != null);
         
         if (graphics is null) {
             return;
@@ -434,16 +435,8 @@ internal sealed unsafe class VkSample {
         
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
-        if (_spriteBatch is not null && _sprite is not null) {
-            using var sb = _spriteBatch.Begin(SpriteSortMode.Deferred);
-            
-            sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f) });
-
-            // for(int i = 0; i < 15000; i++) {
-            //     var pos = new Vector2(Random.Shared.Next(0, (int)Graphics.MainSwapchain.Width), Random.Shared.Next(0, (int)Graphics.MainSwapchain.Height));
-            //     
-            //     sb.Draw(new() { Texture = _sprite, Position = pos });
-            // }
+        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f), Color = Colors.White});
         }
 
         graphics.End();
@@ -451,7 +444,7 @@ internal sealed unsafe class VkSample {
 
     private SpriteTexture CreateTextureImage(string path) {
         using Image<Rgba32> imageSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
-        imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
+        //imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
 
         uint imageSize = (uint)(imageSharp.Width * imageSharp.Height * 4);
         var pixelData = new byte[imageSize];

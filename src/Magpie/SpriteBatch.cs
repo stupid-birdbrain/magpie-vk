@@ -1,4 +1,3 @@
-
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -49,10 +48,11 @@ public sealed class SpriteBatch : IDisposable {
     private CmdBuffer _commandBuffer;
 
     public struct DrawSettings {
-        public SpriteTexture Texture;
+        public required SpriteTexture Texture;
+        public required Color Color;
+        
         public Vector2 Position;
         public Rectangle? SourceRectangle;
-        public Color Color;
         public float Rotation;
         public Vector2 Origin;
         public Vector2 Scale;
@@ -169,16 +169,12 @@ public sealed class SpriteBatch : IDisposable {
     }
     
     public void Draw(DrawSettings settings) {
-        if (settings.Texture is null) {
-            throw new ArgumentNullException(nameof(settings.Texture), "SpriteTexture must be provided in DrawSettings.");
-        }
-
         Vector2 sourceSize = GetSourceSize(settings.Texture, settings.SourceRectangle);
         if (sourceSize.X <= 0f || sourceSize.Y <= 0f) {
             return;
         }
 
-        Vector2 resolvedScale = settings.Scale == Vector2.Zero ? Vector2.One : settings.Scale;
+        Vector2 finalScale = settings.Scale == Vector2.Zero ? Vector2.One : settings.Scale;
         
         DrawInternal(
             settings.Texture, 
@@ -187,7 +183,7 @@ public sealed class SpriteBatch : IDisposable {
             settings.Color, 
             settings.Rotation, 
             settings.Origin, 
-            resolvedScale, 
+            finalScale, 
             settings.Effects, 
             settings.LayerDepth
         );
@@ -259,7 +255,7 @@ public sealed class SpriteBatch : IDisposable {
         Color color,
         float rotation,
         Vector2 origin,
-        Vector2 scale, 
+        Vector2 scale,
         SpriteEffects effects,
         float layerDepth)
     {
@@ -436,7 +432,7 @@ public sealed class SpriteBatch : IDisposable {
         Matrix4x4 transform = _transform;
         vkCmdPushConstants(
             _commandBuffer,
-            _pipelineLayout.Value, 
+            _pipelineLayout.Value,
             VkShaderStageFlags.Vertex,
             0,
             (uint)Unsafe.SizeOf<Matrix4x4>(),
