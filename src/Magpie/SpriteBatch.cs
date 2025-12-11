@@ -1,3 +1,4 @@
+
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -47,7 +48,22 @@ public sealed class SpriteBatch : IDisposable {
     private Matrix4x4 _transform;
     private CmdBuffer _commandBuffer;
 
+    public struct DrawSettings {
+        public SpriteTexture Texture;
+        public Vector2 Position;
+        public Rectangle? SourceRectangle;
+        public Color Color;
+        public float Rotation;
+        public Vector2 Origin;
+        public Vector2 Scale;
+        public SpriteEffects Effects;
+        public float LayerDepth;
+    }
+
     public SpriteBatch(GraphicsDevice graphicsDevice, ReadOnlySpan<byte> vertexShaderCode, ReadOnlySpan<byte> fragmentShaderCode, int initialSpriteCapacity = 256) {
+        if (graphicsDevice is null) {
+            throw new ArgumentNullException(nameof(graphicsDevice));
+        }
         if (vertexShaderCode.IsEmpty) {
             throw new ArgumentException("Vertex shader code cannot be empty.", nameof(vertexShaderCode));
         }
@@ -77,7 +93,7 @@ public sealed class SpriteBatch : IDisposable {
             VertexShader = vertexModule,
             FragmentShader = fragmentModule,
             BlendSettings = BlendSettings.AlphaBlend,
-            DepthTestEnable = false,
+            DepthTestEnable = false, 
             DepthWriteEnable = false,
             DepthCompareOp = VkCompareOp.Always,
             StencilTestEnable = false,
@@ -109,17 +125,12 @@ public sealed class SpriteBatch : IDisposable {
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, GraphicsDevice.MAX_FRAMES_IN_FLIGHT); 
         _descriptorPool = new DescriptorPool(_device, poolSizes, GraphicsDevice.MAX_FRAMES_IN_FLIGHT);
         
-        int initialVertexCount = _initialCapacity * 4;
-        int initialIndexCount = _initialCapacity * 6;
-        _vertexBuffer = new VertexBuffer<SpriteVertex>(_device, (uint)(initialVertexCount * Unsafe.SizeOf<SpriteVertex>()));
-        _indexBuffer = new IndexBuffer(_device, (uint)(initialIndexCount * sizeof(uint)));
-        _buffersInitialized = true;
-        
         _descriptorSets = new DescriptorSet[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
         for (int i = 0; i < GraphicsDevice.MAX_FRAMES_IN_FLIGHT; i++) {
             _descriptorSets[i] = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
         }
-
+        
+        _spriteCapacity = 0;
         EnsureCapacity(_initialCapacity);
     }
 
@@ -156,9 +167,30 @@ public sealed class SpriteBatch : IDisposable {
         _spriteCount = 0;
         _commandBuffer = default;
     }
+    
+    public void Draw(DrawSettings settings) {
+        if (settings.Texture is null) {
+            throw new ArgumentNullException(nameof(settings.Texture), "SpriteTexture must be provided in DrawSettings.");
+        }
 
-    public void Draw(SpriteTexture texture, Vector2 position, Color color) {
-        Draw(texture, position, null, color, 0f, Vector2.Zero, Vector2.One, SpriteEffects.None, 0f);
+        Vector2 sourceSize = GetSourceSize(settings.Texture, settings.SourceRectangle);
+        if (sourceSize.X <= 0f || sourceSize.Y <= 0f) {
+            return;
+        }
+
+        Vector2 resolvedScale = settings.Scale == Vector2.Zero ? Vector2.One : settings.Scale;
+        
+        DrawInternal(
+            settings.Texture, 
+            settings.Position, 
+            settings.SourceRectangle, 
+            settings.Color, 
+            settings.Rotation, 
+            settings.Origin, 
+            resolvedScale, 
+            settings.Effects, 
+            settings.LayerDepth
+        );
     }
 
     public void Draw(
@@ -173,7 +205,18 @@ public sealed class SpriteBatch : IDisposable {
         float layerDepth = 0f)
     {
         Vector2 resolvedScale = scale == Vector2.Zero ? Vector2.One : scale;
-        DrawInternal(texture, position, sourceRectangle, color, rotation, origin, resolvedScale, effects, layerDepth);
+
+        Draw(new DrawSettings {
+            Texture = texture,
+            Position = position,
+            SourceRectangle = sourceRectangle,
+            Color = color,
+            Rotation = rotation,
+            Origin = origin,
+            Scale = resolvedScale,
+            Effects = effects,
+            LayerDepth = layerDepth
+        });
     }
 
     public void Draw(
@@ -191,35 +234,45 @@ public sealed class SpriteBatch : IDisposable {
             return;
         }
 
-        Vector2 scale = new(
+        Vector2 calculatedScale = new(
             destinationRectangle.Width / sourceSize.X,
             destinationRectangle.Height / sourceSize.Y
         );
-
-        DrawInternal(texture, destinationRectangle.Location, sourceRectangle, color, rotation, origin, scale, effects, layerDepth);
+        
+        Draw(new DrawSettings {
+            Texture = texture,
+            Position = destinationRectangle.Location,
+            SourceRectangle = sourceRectangle,
+            Color = color,
+            Rotation = rotation,
+            Origin = origin,
+            Scale = calculatedScale,
+            Effects = effects,
+            LayerDepth = layerDepth
+        });
     }
 
-    private void DrawInternal(
-        SpriteTexture texture,
+    private void DrawInternal( 
+        SpriteTexture texture, 
         Vector2 position,
         Rectangle? sourceRectangle,
         Color color,
         float rotation,
         Vector2 origin,
-        Vector2 scale,
+        Vector2 scale, 
         SpriteEffects effects,
         float layerDepth)
     {
         if (!_isActive) {
             throw new InvalidOperationException("SpriteBatch.Draw must be called between Begin and End.");
         }
-        if (texture is null) {
+        if (texture is null) { 
             throw new ArgumentNullException(nameof(texture));
         }
 
         Vector2 sourceSize = GetSourceSize(texture, sourceRectangle);
         if (sourceSize.X <= 0f || sourceSize.Y <= 0f || scale.X == 0f || scale.Y == 0f) {
-            return;
+            return; 
         }
 
         EnsureCapacity(_spriteCount + 1);
@@ -278,16 +331,16 @@ public sealed class SpriteBatch : IDisposable {
         bottomRight += position;
         bottomLeft += position;
 
-        Vector2 texCoordTl = new(u0, v0);
-        Vector2 texCoordTr = new(u1, v0);
-        Vector2 texCoordBr = new(u1, v1);
-        Vector2 texCoordBl = new(u0, v1);
+        Vector2 texCoordTL = new(u0, v0);
+        Vector2 texCoordTR = new(u1, v0);
+        Vector2 texCoordBR = new(u1, v1);
+        Vector2 texCoordBL = new(u0, v1);
 
         int vertexBase = _spriteCount * 4;
-        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), colorVec, texCoordTl);
-        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), colorVec, texCoordTr);
-        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), colorVec, texCoordBr);
-        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), colorVec, texCoordBl);
+        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), color.ToVector4(), texCoordTL);
+        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), color.ToVector4(), texCoordTR);
+        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), color.ToVector4(), texCoordBR);
+        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), color.ToVector4(), texCoordBL);
 
         _spriteCount++;
         if (_sortMode == SpriteSortMode.Immediate) {
@@ -297,7 +350,8 @@ public sealed class SpriteBatch : IDisposable {
 
     private void EnsureTextureBound(SpriteTexture texture) {
         if (_currentTexture is null) {
-            _descriptorSets[_graphicsDevice.CurrentFrameIndex].Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
+            _descriptorSets[_graphicsDevice.CurrentFrameIndex].Update(
+                texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
             _currentTexture = texture;
         }
     }
@@ -323,10 +377,18 @@ public sealed class SpriteBatch : IDisposable {
         uint newVertexBufferSize = (uint)(vertexCount * Unsafe.SizeOf<SpriteVertex>());
         uint newIndexBufferSize = (uint)(indexCount * sizeof(uint));
 
-        _vertexBuffer.Resize(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
-        _indexBuffer.Resize(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
+        if (!_buffersInitialized) {
+            _vertexBuffer = new VertexBuffer<SpriteVertex>(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
+            _indexBuffer = new IndexBuffer(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
+            _buffersInitialized = true;
+        }
+        else
+        {
+            _vertexBuffer.Resize(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
+            _indexBuffer.Resize(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
+        }
 
-        GenerateIndices(_spriteCapacity);
+        GenerateIndices(_spriteCapacity); 
         _indexBuffer.CopyFrom(new ReadOnlySpan<uint>(_indexScratch, 0, indexCount));
     }
 
@@ -372,7 +434,6 @@ public sealed class SpriteBatch : IDisposable {
 
     private unsafe void PushTransform() {
         Matrix4x4 transform = _transform;
-        
         vkCmdPushConstants(
             _commandBuffer,
             _pipelineLayout.Value, 
@@ -430,16 +491,10 @@ public sealed class SpriteBatch : IDisposable {
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    private struct SpriteVertex {
-        public Vector3 Position;
-        public Vector4 Color;
-        public Vector2 TexCoord;
-
-        public SpriteVertex(Vector3 position, Vector4 color, Vector2 texCoord) {
-            Position = position;
-            Color = color;
-            TexCoord = texCoord;
-        }
+    private struct SpriteVertex(Vector3 position, Vector4 color, Vector2 texCoord) {
+        public Vector3 Position = position;
+        public Vector4 Color = color;
+        public Vector2 TexCoord = texCoord;
     }
 }
 
@@ -450,8 +505,8 @@ public readonly struct SpriteBatchScope : IDisposable {
         _batch = batch;
     }
 
-    public void Draw(SpriteTexture texture, Vector2 position, Color color) {
-        _batch.Draw(texture, position, color);
+    public void Draw(SpriteBatch.DrawSettings settings) {
+        _batch.Draw(settings);
     }
 
     public void Draw(

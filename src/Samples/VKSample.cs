@@ -407,6 +407,7 @@ internal sealed unsafe class VkSample {
     void Draw() {
         var graphics = Graphics;
         Debug.Assert(graphics != null);
+        
         if (graphics is null) {
             return;
         }
@@ -434,25 +435,15 @@ internal sealed unsafe class VkSample {
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
         if (_spriteBatch is not null && _sprite is not null) {
-            using var sprite = _spriteBatch.Begin(SpriteSortMode.Deferred);
-            sprite.Draw(_sprite, new Vector2(32f, 32f), Colors.White);
+            using var sb = _spriteBatch.Begin(SpriteSortMode.Deferred);
+            
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f) });
 
-            float rotation = Time.GlobalTime * 0.75f;
-            Vector2 rotatedPosition = new(extent.X - 160f, 120f);
-            sprite.Draw(
-                _sprite,
-                rotatedPosition,
-                null,
-                Colors.White,
-                rotation,
-                new Vector2(_sprite.Width / 2f, _sprite.Height / 2f),
-                new Vector2(0.75f),
-                SpriteEffects.FlipHorizontally,
-                0.25f
-            );
-
-            Standard.Rectangle banner = new(extent.X * 0.5f - 200f, extent.Y - 180f, 400f, 160f);
-            sprite.Draw(_sprite, banner, new Color(Colors.White, 192));
+            // for(int i = 0; i < 15000; i++) {
+            //     var pos = new Vector2(Random.Shared.Next(0, (int)Graphics.MainSwapchain.Width), Random.Shared.Next(0, (int)Graphics.MainSwapchain.Height));
+            //     
+            //     sb.Draw(new() { Texture = _sprite, Position = pos });
+            // }
         }
 
         graphics.End();
@@ -572,6 +563,9 @@ internal sealed unsafe class VkSample {
 
         _pipeline.Dispose();
         _pipelineLayout.Dispose();
+
+        _instanceBuffer.Dispose();
+        _instanceMemory.Dispose();
 
         _vertexBuffer.Dispose();
         _indexBuffer.Dispose();
