@@ -43,8 +43,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     
     public CmdPool GraphicsCommandPool => _graphicsCmdPool;
     public Queue GraphicsQueue => _graphicsQueue;
-    public int CurrentFrameIndex => _currentFrame; // Exposed for SpriteBatch to get current frame's descriptor set
-    public LogicalDevice LogicalDevice => _logicalDevice; // Exposed for SpriteBatch constructor
+    public int CurrentFrameIndex => _currentFrame;
+    public LogicalDevice LogicalDevice => _logicalDevice;
     public DepthImage DepthImage => _depthImage;
     
 
