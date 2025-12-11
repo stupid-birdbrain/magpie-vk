@@ -1,4 +1,3 @@
-using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -33,9 +32,9 @@ public sealed class SpriteBatch : IDisposable {
     private DescriptorPool _descriptorPool;
     private DescriptorSet[] _descriptorSets; 
 
-    private BufferDeviceMemory _vertexBuffer;
-    private BufferDeviceMemory _indexBuffer;
-
+    private VertexBuffer<SpriteVertex> _vertexBuffer;
+    private IndexBuffer _indexBuffer;
+    
     private SpriteVertex[] _vertexScratch = Array.Empty<SpriteVertex>();
     private uint[] _indexScratch = Array.Empty<uint>();
 
@@ -109,6 +108,12 @@ public sealed class SpriteBatch : IDisposable {
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, GraphicsDevice.MAX_FRAMES_IN_FLIGHT); 
         _descriptorPool = new DescriptorPool(_device, poolSizes, GraphicsDevice.MAX_FRAMES_IN_FLIGHT);
+        
+        int initialVertexCount = _initialCapacity * 4;
+        int initialIndexCount = _initialCapacity * 6;
+        _vertexBuffer = new VertexBuffer<SpriteVertex>(_device, (uint)(initialVertexCount * Unsafe.SizeOf<SpriteVertex>()));
+        _indexBuffer = new IndexBuffer(_device, (uint)(initialIndexCount * sizeof(uint)));
+        _buffersInitialized = true;
         
         _descriptorSets = new DescriptorSet[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
         for (int i = 0; i < GraphicsDevice.MAX_FRAMES_IN_FLIGHT; i++) {
@@ -315,26 +320,14 @@ public sealed class SpriteBatch : IDisposable {
         Array.Resize(ref _vertexScratch, vertexCount);
         Array.Resize(ref _indexScratch, indexCount);
 
-        uint vertexBufferSize = (uint)(vertexCount * Unsafe.SizeOf<SpriteVertex>());
-        uint indexBufferSize = (uint)(indexCount * sizeof(uint));
+        uint newVertexBufferSize = (uint)(vertexCount * Unsafe.SizeOf<SpriteVertex>());
+        uint newIndexBufferSize = (uint)(indexCount * sizeof(uint));
 
-        if (_vertexBuffer.Buffer.Value == VkBuffer.Null) {
-            _vertexBuffer = new BufferDeviceMemory(_device, vertexBufferSize, VkBufferUsageFlags.VertexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
-        }
-        else {
-            _vertexBuffer.Resize(vertexBufferSize);
-        }
-
-        if (_indexBuffer.Buffer.Value == VkBuffer.Null) {
-            _indexBuffer = new BufferDeviceMemory(_device, indexBufferSize, VkBufferUsageFlags.IndexBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
-        }
-        else {
-            _indexBuffer.Resize(indexBufferSize);
-        }
+        _vertexBuffer.Resize(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
+        _indexBuffer.Resize(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
 
         GenerateIndices(_spriteCapacity);
-        _indexBuffer.Memory.CopyFrom(new ReadOnlySpan<uint>(_indexScratch, 0, indexCount));
-        _buffersInitialized = true;
+        _indexBuffer.CopyFrom(new ReadOnlySpan<uint>(_indexScratch, 0, indexCount));
     }
 
     private void GenerateIndices(int spriteCapacity) {
@@ -350,7 +343,7 @@ public sealed class SpriteBatch : IDisposable {
             _indexScratch[indexStart + 5] = (uint)vertexStart;
         }
     }
-
+    
     private unsafe void Flush() {
         if (_spriteCount == 0 || _currentTexture is null) {
             _spriteCount = 0;
@@ -360,12 +353,12 @@ public sealed class SpriteBatch : IDisposable {
         int vertexCount = _spriteCount * 4;
         int indexCount = _spriteCount * 6;
 
-        _vertexBuffer.Memory.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount));
+        _vertexBuffer.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount));
 
-        VkBuffer vertexBufferHandle = _vertexBuffer.Buffer;
+        VkBuffer vertexBufferHandle = _vertexBuffer.Buffer.Value;
         ulong offset = 0;
         vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &offset);
-        vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer, 0, VkIndexType.Uint32);
+        vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer.Value, 0, VkIndexType.Uint32);
 
         var currentFrameDescriptorSet = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
         Span<DescriptorSet> descriptorSetsToBind = stackalloc DescriptorSet[1];
