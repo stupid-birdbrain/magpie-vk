@@ -67,8 +67,15 @@ internal sealed unsafe class VkSample {
 
     private SpriteBatch? _spriteBatch;
     private SpriteTexture? _sprite;
+    private RenderTarget? _filterTargetA;
+    private RenderTarget? _filterTargetB;
 
-    private Stopwatch _stopwatch;
+    private byte[]? _spriteVertexSpirv;
+    private byte[]? _spriteFragmentSpirv;
+    private byte[]? _voronoiFragmentSpirv;
+    private byte[]? _scanlineFragmentSpirv;
+
+    private Stopwatch _stopwatch = default!;
     private int _frameCount;
     private double _elapsedTime;
 
@@ -137,8 +144,6 @@ internal sealed unsafe class VkSample {
 
         Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
         _sprite = CreateTextureImage("resources/hashbrown.png");
-
-        var entryPoint = "main"u8;
 
         var vertShaderCode = _compiler.CompileShader(@"resources/base/base.vert", ShaderKind.Vertex, true);
         var fragShaderCode = _compiler.CompileShader(@"resources/base/base.frag", ShaderKind.Fragment, true);
@@ -275,9 +280,18 @@ internal sealed unsafe class VkSample {
         _descriptorSet.Update(_sprite.ImageView, _sprite.Sampler, VkDescriptorType.CombinedImageSampler);
         _descriptorSet.Update(_instanceBuffer, VkDescriptorType.StorageBuffer, 1);
 
-        var spriteVertexCode = _compiler.CompileShader("resources/spritebatch/spritebatch.vert", ShaderKind.Vertex, true).ToArray();
-        var spriteFragmentCode = _compiler.CompileShader("resources/spritebatch/spritebatch.frag", ShaderKind.Fragment, true).ToArray();
-        _spriteBatch = new SpriteBatch(Graphics!, spriteVertexCode, spriteFragmentCode, 256);
+        _spriteVertexSpirv = _compiler.CompileShader("resources/spritebatch/spritebatch.vert", ShaderKind.Vertex, true).ToArray();
+        _spriteFragmentSpirv = _compiler.CompileShader("resources/spritebatch/spritebatch.frag", ShaderKind.Fragment, true).ToArray();
+        _voronoiFragmentSpirv = _compiler.CompileShader("resources/rttest/voronoi.frag", ShaderKind.Fragment, true).ToArray();
+        _scanlineFragmentSpirv = _compiler.CompileShader("resources/rttest/scanline.frag", ShaderKind.Fragment, true).ToArray();
+
+        _spriteBatch = new SpriteBatch(Graphics!, _spriteVertexSpirv, _spriteFragmentSpirv, 256);
+
+        if (_sprite is not null) {
+            VkFormat targetFormat = Graphics.MainSwapchain.Format;
+            _filterTargetA = new RenderTarget(Graphics, _sprite.Width, _sprite.Height, targetFormat);
+            _filterTargetB = new RenderTarget(Graphics, _sprite.Width, _sprite.Height, targetFormat);
+        }
 
         _keyboard = new();
         _mouse = new();
@@ -342,6 +356,35 @@ internal sealed unsafe class VkSample {
                 _stopwatch.Restart();
             }
         }
+    }
+
+    private void RTTest() {
+        if (_spriteBatch is null || Graphics is null || _spriteVertexSpirv is null || _spriteFragmentSpirv is null || _voronoiFragmentSpirv is null || _scanlineFragmentSpirv is null) {
+            return;
+        }
+
+        if (_sprite is null || _filterTargetA is null || _filterTargetB is null) {
+            return;
+        }
+
+        using (_filterTargetA.BeginScope(Graphics, Colors.Transparent))
+        using (var scope = _spriteBatch.Begin(_filterTargetA, SpriteSortMode.Deferred)) {
+            Standard.Rectangle destination = new(0f, 0f, (float)_filterTargetA.Width, (float)_filterTargetA.Height);
+            scope.Draw(_sprite, destination, Colors.White);
+        }
+
+        using (_filterTargetB.BeginScope(Graphics, Colors.Transparent))
+        using (var scope = _spriteBatch.Begin(_filterTargetB, SpriteSortMode.Deferred)) {
+            Standard.Rectangle destination = new(0f, 0f, (float)_filterTargetB.Width, (float)_filterTargetB.Height);
+            scope.Draw(_filterTargetA.SpriteTextureView, destination, Colors.White);
+        }
+
+        using (_filterTargetA.BeginScope(Graphics, Colors.Transparent))
+        using (var scope = _spriteBatch.Begin(_filterTargetA, SpriteSortMode.Deferred)) {
+            Standard.Rectangle destination = new(0f, 0f, (float)_filterTargetA.Width, (float)_filterTargetA.Height);
+            scope.Draw(_filterTargetB.SpriteTextureView, destination, Colors.White);
+        }
+
     }
 
     private void HandleEvent(SDL.Event @event) {
@@ -409,11 +452,17 @@ internal sealed unsafe class VkSample {
         Debug.Assert(graphics != null);
         Debug.Assert(_spriteBatch != null);
         
-        if (graphics is null) {
+        if (graphics is null || _spriteBatch is null) {
             return;
         }
 
-        if(!graphics.Begin(Colors.LightGray)) return;
+        if (!graphics.BeginFrame()) {
+            return;
+        }
+
+        RTTest();
+
+        graphics.BeginSwapchainRendering(Colors.LightGray.ToVkClearValue());
 
         UpdateShaderData();
 
@@ -435,8 +484,21 @@ internal sealed unsafe class VkSample {
         
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
+        if (_spriteVertexSpirv is not null && _spriteFragmentSpirv is not null) {
+            _spriteBatch.SetShader(_spriteVertexSpirv, _spriteFragmentSpirv);
+        }
+
         using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
-            sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f), Color = Colors.White});
+            if (_sprite is not null) {
+                sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f), Color = Colors.White });
+            }
+
+            if (_filterTargetA is not null) {
+                float filteredWidth = _filterTargetA.Width;
+                float filteredHeight = _filterTargetA.Height;
+                Standard.Rectangle destination = new(extent.X - filteredWidth - 32f, 32f, filteredWidth, filteredHeight);
+                sb.Draw(_filterTargetA.SpriteTextureView, destination, Colors.White);
+            }
         }
 
         graphics.End();
@@ -553,6 +615,8 @@ internal sealed unsafe class VkSample {
 
         _spriteBatch?.Dispose();
         _sprite?.Dispose();
+        _filterTargetA?.Dispose();
+        _filterTargetB?.Dispose();
 
         _pipeline.Dispose();
         _pipelineLayout.Dispose();

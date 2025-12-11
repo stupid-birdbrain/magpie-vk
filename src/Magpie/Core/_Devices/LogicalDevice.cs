@@ -39,15 +39,24 @@ public unsafe struct LogicalDevice : IDisposable {
             deviceExtensionNames = new VkStringArray(deviceExtensions.ToArray());
         }
         
+        VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = new() {
+            sType = VkStructureType.PhysicalDeviceDescriptorIndexingFeatures,
+            descriptorBindingSampledImageUpdateAfterBind = true,
+            descriptorBindingUpdateUnusedWhilePending = true,
+            descriptorBindingPartiallyBound = true
+        };
+
         VkPhysicalDeviceVulkan13Features deviceFeatures2 = new()
         {
+            sType = VkStructureType.PhysicalDeviceVulkan13Features,
+            pNext = &descriptorIndexingFeatures,
             synchronization2 = true,
             dynamicRendering = true
         };
         
         VkDeviceCreateInfo createInfo = new() {
-            pNext = &deviceFeatures2,
             sType = VkStructureType.DeviceCreateInfo,
+            pNext = &deviceFeatures2,
             queueCreateInfoCount = (uint)queueCreateInfos.Length,
             pQueueCreateInfos = (VkDeviceQueueCreateInfo*)Unsafe.AsPointer(ref queueCreateInfos.GetPinnableReference()),
             enabledExtensionCount = deviceExtensionNames.Length,

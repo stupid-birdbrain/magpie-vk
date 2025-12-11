@@ -62,7 +62,7 @@ public unsafe struct DescriptorPool : IDisposable {
     public LogicalDevice Device;
     internal VkDescriptorPool Value;
     
-    public DescriptorPool(LogicalDevice logicalDevice, VkDescriptorType descriptorType, uint descriptorCount, uint poolSizeCount, uint maxSets) {
+    public DescriptorPool(LogicalDevice logicalDevice, VkDescriptorType descriptorType, uint descriptorCount, uint poolSizeCount, uint maxSets, VkDescriptorPoolCreateFlags flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet) {
         Device = logicalDevice;
         Span<VkDescriptorPoolSize> poolSizes = stackalloc VkDescriptorPoolSize[1] { new(descriptorType, descriptorCount) };
         VkDescriptorPoolCreateInfo createInfo = new()
@@ -70,19 +70,19 @@ public unsafe struct DescriptorPool : IDisposable {
             poolSizeCount = poolSizeCount,
             pPoolSizes = poolSizes.GetPointer(),
             maxSets = maxSets,
-            flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet
+            flags = flags
         };
 
         Vulkan.vkCreateDescriptorPool(Device, &createInfo, null, out Value);
     }
-    
-    public DescriptorPool(LogicalDevice logicalDevice, ReadOnlySpan<DescriptorPoolSize> poolSizes, uint maxSets) {
+
+    public DescriptorPool(LogicalDevice logicalDevice, ReadOnlySpan<DescriptorPoolSize> poolSizes, uint maxSets, VkDescriptorPoolCreateFlags flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet) {
         Device = logicalDevice;
         VkDescriptorPoolCreateInfo createInfo = new() {
             poolSizeCount = (uint)poolSizes.Length,
             pPoolSizes = (VkDescriptorPoolSize*)poolSizes.GetPointer(),
             maxSets = maxSets,
-            flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet
+            flags = flags
         };
 
         Vulkan.vkCreateDescriptorPool(Device, &createInfo, null, out Value);

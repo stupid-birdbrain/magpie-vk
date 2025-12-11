@@ -148,6 +148,18 @@ public unsafe struct CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) : IDispos
             sourceStage = VkPipelineStageFlags.TopOfPipe;
             destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
         }
+        else if (oldLayout == VkImageLayout.ColorAttachmentOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = VkAccessFlags.ColorAttachmentWrite;
+            barrier.dstAccessMask = VkAccessFlags.ShaderRead;
+            sourceStage = VkPipelineStageFlags.ColorAttachmentOutput;
+            destinationStage = VkPipelineStageFlags.FragmentShader;
+        }
+        else if (oldLayout == VkImageLayout.ShaderReadOnlyOptimal && newLayout == VkImageLayout.ColorAttachmentOptimal) {
+            barrier.srcAccessMask = VkAccessFlags.ShaderRead;
+            barrier.dstAccessMask = VkAccessFlags.ColorAttachmentWrite;
+            sourceStage = VkPipelineStageFlags.FragmentShader;
+            destinationStage = VkPipelineStageFlags.ColorAttachmentOutput;
+        }
         else if (oldLayout == VkImageLayout.ShaderReadOnlyOptimal && newLayout == VkImageLayout.TransferSrcOptimal) {
             barrier.srcAccessMask = VkAccessFlags.ShaderRead;
             barrier.dstAccessMask = VkAccessFlags.TransferRead;

@@ -37,6 +37,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private uint _imageIndex;
     private bool _isFrameStarted;
     private int _currentFrame;
+    private bool _swapchainRenderingActive;
 
     public bool IsFrameStarted => _isFrameStarted;
     public Swapchain MainSwapchain => _mainSwapchain;
@@ -90,9 +91,9 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     public FenceLease RequestFence(VkFenceCreateFlags flags) => _fences.Rent(flags);
     
     /// <summary>
-    ///     Attempts to begin a new rendering frame and clears the backbuffer.
+    ///     Attempts to begin a new rendering frame. Call <see cref="BeginSwapchainRendering"/> before drawing to the backbuffer.
     /// </summary>
-    public bool Begin(VkClearValue clearColor) {
+    public bool BeginFrame() {
         if (_isFrameStarted) {
             throw new InvalidOperationException("cannot call Begin twice in a frame! Call End() first.");
         }
@@ -102,7 +103,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         Semaphore currentImageAvailableSemaphore = _imageAvailableSemaphores[_currentFrame];
 
         currentInFlightFence.Wait();
-        
+
         VkResult result = vkAcquireNextImageKHR(
             _logicalDevice,
             _mainSwapchain.Value,
@@ -120,7 +121,7 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         else if (result != VkResult.Success && result != VkResult.SuboptimalKHR) {
             throw new Exception($"failed to acquire swapchain image!: {result}");
         }
-        
+
         if (_mainSwapchain.Images.Length == 0) {
             RecreateSwapchain();
             _isFrameStarted = false;
@@ -133,54 +134,80 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         }
 
         VkFence imageFence = _imagesInFlight[(int)_imageIndex];
-        if (imageFence.Handle != VkFence.Null.Handle)
-        {
+        if (imageFence.Handle != VkFence.Null.Handle) {
             vkWaitForFences(_logicalDevice, 1, &imageFence, true, ulong.MaxValue).CheckResult();
         }
 
         _imagesInFlight[(int)_imageIndex] = currentInFlightFence;
 
         _isFrameStarted = true;
+        _swapchainRenderingActive = false;
         currentInFlightFence.Reset();
 
         currentCmdBuffer.Reset();
         currentCmdBuffer.Begin(flags: VkCommandBufferUsageFlags.OneTimeSubmit);
 
+        return true;
+    }
+
+    public void BeginSwapchainRendering(VkClearValue clearColor, VkAttachmentLoadOp colorLoadOp = VkAttachmentLoadOp.Clear, bool clearDepth = true) {
+        if (!_isFrameStarted) {
+            throw new InvalidOperationException("cannot begin swapchain rendering before a frame has started.");
+        }
+        if (_swapchainRenderingActive) {
+            throw new InvalidOperationException("swapchain rendering is already active.");
+        }
+
+        CmdBuffer currentCmdBuffer = _mainCommandBuffers[_currentFrame];
         Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
         currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal, aspects: VkImageAspectFlags.Color);
         currentCmdBuffer.TransitionImageLayout(_depthImage.Image, VkImageLayout.Undefined, VkImageLayout.DepthStencilAttachmentOptimal, aspects: VkImageAspectFlags.Depth);
-        
-        VkRenderingAttachmentInfo colorAttachment = new()
-        {
+
+        VkRenderingAttachmentInfo colorAttachment = new() {
             sType = VkStructureType.RenderingAttachmentInfo,
             imageView = _mainSwapchain.ImageViews[_imageIndex],
             imageLayout = VkImageLayout.ColorAttachmentOptimal,
-            loadOp = VkAttachmentLoadOp.Clear,
+            loadOp = colorLoadOp,
             storeOp = VkAttachmentStoreOp.Store,
             clearValue = clearColor
         };
-        
-        VkClearValue depthClearValue = new VkClearValue { depthStencil = new VkClearDepthStencilValue(1.0f, 0) };
-        VkRenderingAttachmentInfo depthAttachment = new()
-        {
+
+        VkClearValue depthClearValue = new() { depthStencil = new VkClearDepthStencilValue(1.0f, 0) };
+        VkAttachmentLoadOp depthLoadOp = clearDepth ? VkAttachmentLoadOp.Clear : VkAttachmentLoadOp.Load;
+
+        VkRenderingAttachmentInfo depthAttachment = new() {
             sType = VkStructureType.RenderingAttachmentInfo,
             imageView = _depthImage.ImageView.Value,
             imageLayout = VkImageLayout.DepthStencilAttachmentOptimal,
-            loadOp = VkAttachmentLoadOp.Clear,
+            loadOp = depthLoadOp,
             storeOp = VkAttachmentStoreOp.DontCare,
             clearValue = depthClearValue
         };
 
+        VkRect2D renderArea = new VkRect2D(new VkOffset2D(0, 0), new VkExtent2D(_mainSwapchain.Width, _mainSwapchain.Height));
         VkRenderingInfo renderingInfo = new() {
             sType = VkStructureType.RenderingInfo,
-            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
+            renderArea = renderArea,
             layerCount = 1,
             colorAttachmentCount = 1,
             pColorAttachments = &colorAttachment,
             pDepthAttachment = &depthAttachment,
             pStencilAttachment = null
         };
+
         vkCmdBeginRendering(currentCmdBuffer, &renderingInfo);
+        _swapchainRenderingActive = true;
+    }
+
+    /// <summary>
+    ///     Attempts to begin a new rendering frame and immediately start rendering to the swapchain.
+    /// </summary>
+    public bool Begin(VkClearValue clearColor) {
+        if (!BeginFrame()) {
+            return false;
+        }
+
+        BeginSwapchainRendering(clearColor);
         return true;
     }
     
@@ -210,11 +237,16 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         Semaphore currentRenderFinishedSemaphore = _renderFinishedSemaphores[_imageIndex];
         Fence currentInFlightFence = _inFlightFences[_currentFrame];
 
+        if (!_swapchainRenderingActive) {
+            throw new InvalidOperationException("swapchain rendering was not started before End().");
+        }
+
         vkCmdEndRendering(currentCmdBuffer);
 
         Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
         currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.ColorAttachmentOptimal, VkImageLayout.PresentSrcKHR, aspects: VkImageAspectFlags.Color);
         currentCmdBuffer.TransitionImageLayout(_depthImage.Image, VkImageLayout.DepthStencilAttachmentOptimal, VkImageLayout.DepthStencilReadOnlyOptimal, aspects: VkImageAspectFlags.Depth);
+        _swapchainRenderingActive = false;
         
         currentCmdBuffer.End();
 

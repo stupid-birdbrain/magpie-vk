@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -26,14 +27,22 @@ public sealed class SpriteBatch : IDisposable {
     private readonly LogicalDevice _device;
     private readonly int _initialCapacity;
 
-    private Pipeline _pipeline;
     private PipelineLayout _pipelineLayout;
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
-    private DescriptorSet[] _descriptorSets; 
+    private DescriptorSet[] _descriptorSets;
 
     private VertexBuffer<SpriteVertex> _vertexBuffer;
     private IndexBuffer _indexBuffer;
+
+    private readonly Dictionary<ShaderKey, ShaderSource> _shaderSources = new();
+    private readonly Dictionary<ShaderPipelineKey, Pipeline> _shaderPipelines = new();
+    private ShaderSource _currentShaderSource;
+    private ShaderKey _currentShaderKey;
+    private Pipeline _activePipeline;
+    private VkFormat _activeColorFormat;
+    private RenderTarget? _activeRenderTarget;
+    private static bool _loggedFirstFlush;
     
     private SpriteVertex[] _vertexScratch = Array.Empty<SpriteVertex>();
     private uint[] _indexScratch = Array.Empty<uint>();
@@ -75,10 +84,7 @@ public sealed class SpriteBatch : IDisposable {
         _device = graphicsDevice.LogicalDevice;
         _initialCapacity = Math.Max(1, initialSpriteCapacity);
 
-        using ShaderModule vertexModule = new(_device, vertexShaderCode.ToArray());
-        using ShaderModule fragmentModule = new(_device, fragmentShaderCode.ToArray());
-
-        _descriptorSetLayout = new DescriptorSetLayout(_device, 0, VkDescriptorType.CombinedImageSampler, VkShaderStageFlags.Fragment);
+        _descriptorSetLayout = new DescriptorSetLayout(_device, 0, VkDescriptorType.CombinedImageSampler, VkShaderStageFlags.Fragment, VkDescriptorBindingFlags.UpdateAfterBind);
 
         VkPushConstantRange pushConstantRange = new() {
             stageFlags = VkShaderStageFlags.Vertex,
@@ -89,42 +95,26 @@ public sealed class SpriteBatch : IDisposable {
         PushConstant pushConstant = new(pushConstantRange.offset, pushConstantRange.size, pushConstantRange.stageFlags);
         _pipelineLayout = new PipelineLayout(_device, [_descriptorSetLayout], [pushConstant]);
 
-        PipelineCreationDescription pipelineDescription = new() {
-            VertexShader = vertexModule,
-            FragmentShader = fragmentModule,
-            BlendSettings = BlendSettings.AlphaBlend,
-            DepthTestEnable = false, 
-            DepthWriteEnable = false,
-            DepthCompareOp = VkCompareOp.Always,
-            StencilTestEnable = false,
-            CullMode = VkCullModeFlags.None,
-            FrontFace = VkFrontFace.CounterClockwise,
-            PolygonMode = VkPolygonMode.Fill,
-            PrimitiveTopology = VkPrimitiveTopology.TriangleList,
-            PrimitiveRestartEnable = false
-        };
+        byte[] initialVertexBytes = vertexShaderCode.ToArray();
+        byte[] initialFragmentBytes = fragmentShaderCode.ToArray();
+        ShaderKey initialKey = new(initialVertexBytes, initialFragmentBytes);
+        ShaderSource initialSource = new(initialVertexBytes, initialFragmentBytes);
+        _shaderSources[initialKey] = initialSource;
+        _currentShaderKey = initialKey;
+        _currentShaderSource = initialSource;
 
-        VkVertexInputBindingDescription vertexBinding = new((uint)Unsafe.SizeOf<SpriteVertex>());
-        Span<VkVertexInputAttributeDescription> vertexAttributes = stackalloc VkVertexInputAttributeDescription[3];
-        vertexAttributes[0] = new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Position)));
-        vertexAttributes[1] = new(location: 1, binding: 0, format: Vector4.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Color)));
-        vertexAttributes[2] = new(location: 2, binding: 0, format: Vector2.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.TexCoord)));
+        VkFormat swapchainFormat = _graphicsDevice.MainSwapchain.Format;
+        ShaderPipelineKey swapchainPipelineKey = new(initialKey, swapchainFormat);
+        Pipeline swapchainPipeline = CreatePipeline(initialSource, swapchainFormat);
+        _shaderPipelines[swapchainPipelineKey] = swapchainPipeline;
+        _activePipeline = swapchainPipeline;
+        _activeColorFormat = swapchainFormat;
 
-        _pipeline = new Pipeline(
-            _device,
-            _graphicsDevice.MainSwapchain.Format,
-            _graphicsDevice.DepthImage.Format,
-            pipelineDescription,
-            _pipelineLayout,
-            vertexBinding,
-            vertexAttributes,
-            "main"u8
-        );
-
+        uint descriptorCount = (uint)GraphicsDevice.MAX_FRAMES_IN_FLIGHT;
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
-        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, GraphicsDevice.MAX_FRAMES_IN_FLIGHT); 
-        _descriptorPool = new DescriptorPool(_device, poolSizes, GraphicsDevice.MAX_FRAMES_IN_FLIGHT);
-        
+        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, descriptorCount);
+        _descriptorPool = new DescriptorPool(_device, poolSizes, descriptorCount, VkDescriptorPoolCreateFlags.FreeDescriptorSet | VkDescriptorPoolCreateFlags.UpdateAfterBind);
+
         _descriptorSets = new DescriptorSet[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
         for (int i = 0; i < GraphicsDevice.MAX_FRAMES_IN_FLIGHT; i++) {
             _descriptorSets[i] = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
@@ -134,7 +124,18 @@ public sealed class SpriteBatch : IDisposable {
         EnsureCapacity(_initialCapacity);
     }
 
-    public SpriteBatchScope Begin(SpriteSortMode sortMode = SpriteSortMode.Deferred, Matrix4x4? transform = null) {
+    public SpriteBatchScope Begin(SpriteSortMode sortMode = SpriteSortMode.Deferred, Matrix4x4? transform = null)
+        => BeginInternal(null, sortMode, transform);
+
+    public SpriteBatchScope Begin(RenderTarget target, SpriteSortMode sortMode = SpriteSortMode.Deferred, Matrix4x4? transform = null) {
+        if (target is null) {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        return BeginInternal(target, sortMode, transform);
+    }
+
+    private SpriteBatchScope BeginInternal(RenderTarget? target, SpriteSortMode sortMode, Matrix4x4? transform) {
         if (_isActive) {
             throw new InvalidOperationException("SpriteBatch.Begin can only be called once per frame.");
         }
@@ -143,12 +144,21 @@ public sealed class SpriteBatch : IDisposable {
         _spriteCount = 0;
         _sortMode = sortMode;
         _currentTexture = null;
+        _activeRenderTarget = target;
         _commandBuffer = _graphicsDevice.RequestCurrentCommandBuffer();
 
-        _transform = transform ?? CreateDefaultTransform();
+        VkFormat colorFormat = target?.Format ?? _graphicsDevice.MainSwapchain.Format;
+        _activePipeline = GetPipelineForCurrentShader(colorFormat);
+        _activeColorFormat = colorFormat;
 
-        _commandBuffer.BindPipeline(_pipeline);
-        Vector2 extent = new(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
+        _transform = transform ?? CreateDefaultTransform(target);
+
+        _commandBuffer.BindPipeline(_activePipeline);
+
+        Vector2 extent = target is not null
+            ? new Vector2(target.Width, target.Height)
+            : new Vector2(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
+
         _commandBuffer.SetViewport(new Rectangle(0f, 0f, extent.X, extent.Y));
         _commandBuffer.SetScissor(new Rectangle(0f, 0f, extent.X, extent.Y));
         PushTransform();
@@ -165,7 +175,37 @@ public sealed class SpriteBatch : IDisposable {
         _isActive = false;
         _currentTexture = null;
         _spriteCount = 0;
+        _activeRenderTarget = null;
+
         _commandBuffer = default;
+    }
+
+    public void SetShader(ReadOnlySpan<byte> vertexShaderCode, ReadOnlySpan<byte> fragmentShaderCode) {
+        if (vertexShaderCode.IsEmpty) {
+            throw new ArgumentException("Vertex shader code cannot be empty.", nameof(vertexShaderCode));
+        }
+        if (fragmentShaderCode.IsEmpty) {
+            throw new ArgumentException("Fragment shader code cannot be empty.", nameof(fragmentShaderCode));
+        }
+        if (_isActive) {
+            throw new InvalidOperationException("Cannot change shaders while the sprite batch is active.");
+        }
+
+        ShaderKey key = new(vertexShaderCode, fragmentShaderCode);
+        ShaderSource source;
+        if (!_shaderSources.TryGetValue(key, out ShaderSource? existing) || existing is null) {
+            byte[] vertexBytes = vertexShaderCode.ToArray();
+            byte[] fragmentBytes = fragmentShaderCode.ToArray();
+            key = new ShaderKey(vertexBytes, fragmentBytes);
+            source = new ShaderSource(vertexBytes, fragmentBytes);
+            _shaderSources[key] = source;
+        }
+        else {
+            source = existing;
+        }
+
+        _currentShaderKey = key;
+        _currentShaderSource = source;
     }
     
     public void Draw(DrawSettings settings) {
@@ -346,10 +386,61 @@ public sealed class SpriteBatch : IDisposable {
 
     private void EnsureTextureBound(SpriteTexture texture) {
         if (_currentTexture is null) {
-            _descriptorSets[_graphicsDevice.CurrentFrameIndex].Update(
-                texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
-            _currentTexture = texture;
+            DescriptorSet descriptorSet = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
+            descriptorSet.Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
         }
+        _currentTexture = texture;
+    }
+
+    private Pipeline GetPipelineForCurrentShader(VkFormat colorFormat) {
+        ShaderPipelineKey pipelineKey = new(_currentShaderKey, colorFormat);
+        if (_shaderPipelines.TryGetValue(pipelineKey, out Pipeline pipeline)) {
+            return pipeline;
+        }
+
+        pipeline = CreatePipeline(_currentShaderSource, colorFormat);
+        _shaderPipelines[pipelineKey] = pipeline;
+        return pipeline;
+    }
+
+    private Pipeline CreatePipeline(ShaderSource source, VkFormat colorFormat) {
+        using ShaderModule vertexModule = new(_device, source.VertexCode);
+        using ShaderModule fragmentModule = new(_device, source.FragmentCode);
+        return BuildPipeline(vertexModule, fragmentModule, colorFormat);
+    }
+
+    private Pipeline BuildPipeline(ShaderModule vertexModule, ShaderModule fragmentModule, VkFormat colorFormat) {
+        PipelineCreationDescription pipelineDescription = new() {
+            VertexShader = vertexModule,
+            FragmentShader = fragmentModule,
+            BlendSettings = BlendSettings.AlphaBlend,
+            DepthTestEnable = false,
+            DepthWriteEnable = false,
+            DepthCompareOp = VkCompareOp.Always,
+            StencilTestEnable = false,
+            CullMode = VkCullModeFlags.None,
+            FrontFace = VkFrontFace.CounterClockwise,
+            PolygonMode = VkPolygonMode.Fill,
+            PrimitiveTopology = VkPrimitiveTopology.TriangleList,
+            PrimitiveRestartEnable = false
+        };
+
+        VkVertexInputBindingDescription vertexBinding = new((uint)Unsafe.SizeOf<SpriteVertex>());
+        Span<VkVertexInputAttributeDescription> vertexAttributes = stackalloc VkVertexInputAttributeDescription[3];
+        vertexAttributes[0] = new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Position)));
+        vertexAttributes[1] = new(location: 1, binding: 0, format: Vector4.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Color)));
+        vertexAttributes[2] = new(location: 2, binding: 0, format: Vector2.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.TexCoord)));
+
+        return new Pipeline(
+            _device,
+            colorFormat,
+            _graphicsDevice.DepthImage.Format,
+            pipelineDescription,
+            _pipelineLayout,
+            vertexBinding,
+            vertexAttributes,
+            "main"u8
+        );
     }
 
     private void EnsureCapacity(int requiredSpriteCount) {
@@ -413,15 +504,28 @@ public sealed class SpriteBatch : IDisposable {
 
         _vertexBuffer.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount));
 
+        _commandBuffer.BindPipeline(_activePipeline);
+
         VkBuffer vertexBufferHandle = _vertexBuffer.Buffer.Value;
         ulong offset = 0;
         vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &offset);
         vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer.Value, 0, VkIndexType.Uint32);
 
-        var currentFrameDescriptorSet = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
         Span<DescriptorSet> descriptorSetsToBind = stackalloc DescriptorSet[1];
-        descriptorSetsToBind[0] = currentFrameDescriptorSet;
+        descriptorSetsToBind[0] = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
         _commandBuffer.BindDescriptorSets(_pipelineLayout, descriptorSetsToBind);
+
+        if (!_loggedFirstFlush || true) {
+            if (_spriteCount > 0) {
+                SpriteVertex debugVertex = _vertexScratch[0];
+                Vector4 clip = Vector4.Transform(new Vector4(debugVertex.Position, 1f), _transform);
+                Console.WriteLine($"Spritebatch Flush: sprites={_spriteCount}, texture={_currentTexture?.Width}x{_currentTexture?.Height}, target={( _activeRenderTarget?.Width ?? _graphicsDevice.MainSwapchain.Width)}x{(_activeRenderTarget?.Height ?? _graphicsDevice.MainSwapchain.Height)}, format={_activeRenderTarget?.Format ?? _graphicsDevice.MainSwapchain.Format}, renderTargetActive={_activeRenderTarget is not null}, firstVertex={debugVertex.Position}, firstVertexUV={debugVertex.TexCoord}, firstVertexClip={clip}");
+            }
+            else {
+                Console.WriteLine($"Spritebatch Flush: sprites=0");
+            }
+            _loggedFirstFlush = true;
+        }
 
         vkCmdDrawIndexed(_commandBuffer, (uint)indexCount, 1, 0, 0, 0);
 
@@ -440,9 +544,12 @@ public sealed class SpriteBatch : IDisposable {
         );
     }
 
-    private Matrix4x4 CreateDefaultTransform() {
-        Vector2 extent = new(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
-        Matrix4x4 projection = Matrix4x4.CreateOrthographicOffCenter(0f, extent.X, 0f, extent.Y, -1f, 1f);
+    private Matrix4x4 CreateDefaultTransform(RenderTarget? target) {
+        Vector2 extent = target is not null
+            ? new Vector2(target.Width, target.Height)
+            : new Vector2(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
+
+        Matrix4x4 projection = Matrix4x4.CreateOrthographicOffCenter(0f, extent.X, extent.Y, 0f, -1f, 1f);
         return projection;
     }
 
@@ -470,12 +577,17 @@ public sealed class SpriteBatch : IDisposable {
             _isActive = false;
         }
 
-        foreach (var ds in _descriptorSets) {
-            ds.Dispose();
+        if (_descriptorSets is not null) {
+            foreach (var descriptorSet in _descriptorSets) {
+                descriptorSet.Dispose();
+            }
         }
 
         _descriptorPool.Dispose();
-        _pipeline.Dispose();
+        foreach (var entry in _shaderPipelines.Values) {
+            entry.Dispose();
+        }
+        _shaderPipelines.Clear();
         _pipelineLayout.Dispose();
         _descriptorSetLayout.Dispose();
 
@@ -483,6 +595,56 @@ public sealed class SpriteBatch : IDisposable {
             _vertexBuffer.Dispose();
             _indexBuffer.Dispose();
             _buffersInitialized = false;
+        }
+    }
+
+    private sealed class ShaderSource(byte[] vertexCode, byte[] fragmentCode) {
+        public readonly byte[] VertexCode = vertexCode;
+        public readonly byte[] FragmentCode = fragmentCode;
+    }
+
+    private readonly struct ShaderPipelineKey(ShaderKey shaderKey, VkFormat format) : IEquatable<ShaderPipelineKey> {
+        private readonly ShaderKey _shaderKey = shaderKey;
+        private readonly VkFormat _format = format;
+
+        public bool Equals(ShaderPipelineKey other) => _shaderKey.Equals(other._shaderKey) && _format == other._format;
+
+        public override bool Equals(object? obj) => obj is ShaderPipelineKey other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(_shaderKey, _format);
+    }
+
+    private readonly struct ShaderKey : IEquatable<ShaderKey> {
+        private readonly int _vertexHash;
+        private readonly int _fragmentHash;
+        private readonly int _vertexLength;
+        private readonly int _fragmentLength;
+
+        public ShaderKey(ReadOnlySpan<byte> vertex, ReadOnlySpan<byte> fragment) {
+            _vertexLength = vertex.Length;
+            _fragmentLength = fragment.Length;
+            _vertexHash = ComputeHash(vertex);
+            _fragmentHash = ComputeHash(fragment);
+        }
+
+        public bool Equals(ShaderKey other) =>
+            _vertexHash == other._vertexHash &&
+            _fragmentHash == other._fragmentHash &&
+            _vertexLength == other._vertexLength &&
+            _fragmentLength == other._fragmentLength;
+
+        public override bool Equals(object? obj) => obj is ShaderKey other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(_vertexHash, _fragmentHash, _vertexLength, _fragmentLength);
+
+        private static int ComputeHash(ReadOnlySpan<byte> data) {
+            unchecked {
+                int hash = 17;
+                foreach (byte b in data) {
+                    hash = hash * 31 + b;
+                }
+                return hash;
+            }
         }
     }
 

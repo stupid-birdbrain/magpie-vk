@@ -8,6 +8,7 @@ layout(location = 0) out vec4 outColor;
 layout(set = 0, binding = 0) uniform sampler2D uTexture;
 
 void main() {
-    vec4 texColor = texture(uTexture, vTexCoord);
-    outColor = texColor * vColor;
+    vec4 color = texture(uTexture, vTexCoord) * vColor;
+    color.a = 1.0; // TODO: remove
+    outColor = color;
 }

@@ -8,6 +8,7 @@ public sealed class SpriteTexture : IDisposable {
     private DeviceMemory _memory;
     private ImageView _imageView;
     private Sampler _sampler;
+    private readonly bool _ownsResources;
     private bool _disposed;
 
     public uint Width => _image.Width;
@@ -17,11 +18,12 @@ public sealed class SpriteTexture : IDisposable {
     public ImageView ImageView => _imageView;
     public Sampler Sampler => _sampler;
 
-    public SpriteTexture(Image image, DeviceMemory memory, ImageView imageView, Sampler sampler) {
+    public SpriteTexture(Image image, DeviceMemory memory, ImageView imageView, Sampler sampler, bool ownsResources = true) {
         _image = image;
         _memory = memory;
         _imageView = imageView;
         _sampler = sampler;
+        _ownsResources = ownsResources;
     }
 
     public void Dispose() {
@@ -29,10 +31,12 @@ public sealed class SpriteTexture : IDisposable {
             return;
         }
 
-        _sampler.Dispose();
-        _imageView.Dispose();
-        _memory.Dispose();
-        _image.Dispose();
+        if (_ownsResources) {
+            _sampler.Dispose();
+            _imageView.Dispose();
+            _memory.Dispose();
+            _image.Dispose();
+        }
         _disposed = true;
     }
 }
