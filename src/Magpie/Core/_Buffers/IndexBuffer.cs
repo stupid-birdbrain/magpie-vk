@@ -1,4 +1,5 @@
 ﻿using Magpie.Core;
+using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 
 namespace Magpie.Core;
@@ -6,14 +7,14 @@ namespace Magpie.Core;
 public unsafe struct IndexBuffer : IDisposable {
     public Buffer Buffer;
     public DeviceMemory Memory;
-    public readonly uint IndexCount;
+    public uint IndexCount;
     public readonly VkIndexType IndexType;
 
     public IndexBuffer(LogicalDevice logicalDevice, CmdPool commandPool, Queue graphicsQueue, ReadOnlySpan<byte> indexDataBytes, VkIndexType indexType = VkIndexType.Uint32, VkBufferUsageFlags extraUsageFlags = VkBufferUsageFlags.None) {
-        Buffer = default;
-        Memory = default;
         IndexCount = 0;
         IndexType = indexType;
+        Buffer = default;
+        Memory = default;
 
         uint totalIndexBufferSize = (uint)indexDataBytes.Length;
 
@@ -28,18 +29,16 @@ public unsafe struct IndexBuffer : IDisposable {
                 throw new ArgumentOutOfRangeException(nameof(indexType), "unsupported index type!");
         }
         
-        Buffer stagingBuffer = new(logicalDevice, totalIndexBufferSize, VkBufferUsageFlags.TransferSrc);
-        DeviceMemory stagingMemory = new(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        using Buffer stagingBuffer = new(logicalDevice, totalIndexBufferSize, VkBufferUsageFlags.TransferSrc);
+        using DeviceMemory stagingMemory = new(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
 
         stagingMemory.CopyFrom(indexDataBytes);
 
         Buffer = new Buffer(logicalDevice, totalIndexBufferSize, VkBufferUsageFlags.TransferDst | VkBufferUsageFlags.IndexBuffer | extraUsageFlags);
         Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.DeviceLocal);
 
-        {
-            using var fenceLease = new Fence(logicalDevice, VkFenceCreateFlags.None);
-            var copyCmd = commandPool.CreateCommandBuffer();
-
+        using (var fenceLease = new Fence(logicalDevice, VkFenceCreateFlags.None)) {
+            using var copyCmd = commandPool.CreateCommandBuffer();
             copyCmd.Begin();
             
             VkBufferCopy copyRegion = new() { dstOffset = 0, srcOffset = 0, size = totalIndexBufferSize };
@@ -49,12 +48,29 @@ public unsafe struct IndexBuffer : IDisposable {
 
             graphicsQueue.Submit(copyCmd, fenceLease); 
             fenceLease.Wait(); 
-
-            copyCmd.Dispose();
         }
+    }
 
-        stagingMemory.Dispose();
-        stagingBuffer.Dispose();
+    public IndexBuffer(LogicalDevice logicalDevice, uint initialSize, VkBufferUsageFlags extraUsageFlags = VkBufferUsageFlags.None, VkIndexType indexType = VkIndexType.Uint32) {
+        Buffer = new Buffer(logicalDevice, initialSize, VkBufferUsageFlags.IndexBuffer | extraUsageFlags);
+        Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        IndexCount = 0;
+        IndexType = indexType;
+    }
+
+    public void CopyFrom<T>(ReadOnlySpan<T> data) where T : unmanaged {
+        Memory.CopyFrom(MemoryMarshal.Cast<T, byte>(data));
+        IndexCount = (uint)data.Length;
+    }
+
+    public void Resize(LogicalDevice logicalDevice, uint newSize, VkBufferUsageFlags extraUsageFlags) {
+        if (newSize == Buffer.Size) return;
+        
+        Memory.Dispose();
+        Buffer.Dispose();
+
+        Buffer = new Buffer(logicalDevice, newSize, VkBufferUsageFlags.IndexBuffer | extraUsageFlags);
+        Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
     }
 
     public void Dispose() {

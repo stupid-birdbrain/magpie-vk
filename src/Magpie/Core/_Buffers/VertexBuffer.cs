@@ -9,35 +9,32 @@ namespace Magpie.Core;
 public unsafe struct VertexBuffer<TVertex> : IDisposable where TVertex : unmanaged {
     public Buffer Buffer;
     public DeviceMemory Memory;
-    public readonly uint VertexCount;
+    public uint VertexCount;
     public readonly uint VertexSizeInBytes;
 
     public VertexBuffer(LogicalDevice logicalDevice, CmdPool commandPool, Queue graphicsQueue, ReadOnlySpan<TVertex> vertexData, VkBufferUsageFlags extraUsageFlags = VkBufferUsageFlags.None) {
+        VertexCount = 0;
+        VertexSizeInBytes = (uint)Unsafe.SizeOf<TVertex>();
         Buffer = default;
         Memory = default;
-        VertexCount = 0;
-        VertexSizeInBytes = 0;
 
         if (vertexData.IsEmpty) {
             throw new ArgumentException("vertex data cannot be empty!", nameof(vertexData));
         }
         
-        VertexSizeInBytes = (uint)Unsafe.SizeOf<TVertex>();
         VertexCount = (uint)vertexData.Length;
         uint totalVertexBufferSize = VertexCount * VertexSizeInBytes;
 
-        Buffer stagingBuffer = new(logicalDevice, totalVertexBufferSize, VkBufferUsageFlags.TransferSrc);
-        DeviceMemory stagingMemory = new(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        using Buffer stagingBuffer = new(logicalDevice, totalVertexBufferSize, VkBufferUsageFlags.TransferSrc);
+        using DeviceMemory stagingMemory = new(stagingBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
 
         stagingMemory.CopyFrom(vertexData);
 
         Buffer = new Buffer(logicalDevice, totalVertexBufferSize, VkBufferUsageFlags.TransferDst | VkBufferUsageFlags.VertexBuffer | extraUsageFlags);
         Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.DeviceLocal);
         
-        {
-            using var fenceLease = new Fence(logicalDevice, VkFenceCreateFlags.None);
-            var copyCmd = commandPool.CreateCommandBuffer();
-
+        using (var fenceLease = new Fence(logicalDevice, VkFenceCreateFlags.None)) {
+            using var copyCmd = commandPool.CreateCommandBuffer();
             copyCmd.Begin();
             
             VkBufferCopy copyRegion = new() { dstOffset = 0, srcOffset = 0, size = totalVertexBufferSize };
@@ -47,12 +44,29 @@ public unsafe struct VertexBuffer<TVertex> : IDisposable where TVertex : unmanag
 
             graphicsQueue.Submit(copyCmd, fenceLease); 
             fenceLease.Wait(); 
-
-            copyCmd.Dispose();
         }
+    }
+    
+    public VertexBuffer(LogicalDevice logicalDevice, uint initialSize, VkBufferUsageFlags extraUsageFlags = VkBufferUsageFlags.None) {
+        Buffer = new Buffer(logicalDevice, initialSize, VkBufferUsageFlags.VertexBuffer | extraUsageFlags);
+        Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        VertexCount = 0;
+        VertexSizeInBytes = (uint)Unsafe.SizeOf<TVertex>();
+    }
 
-        stagingMemory.Dispose();
-        stagingBuffer.Dispose();
+    public void CopyFrom(ReadOnlySpan<TVertex> data) {
+        Memory.CopyFrom(data);
+        VertexCount = (uint)data.Length;
+    }
+
+    public void Resize(LogicalDevice logicalDevice, uint newSize, VkBufferUsageFlags extraUsageFlags) {
+        if (newSize == Buffer.Size) return;
+
+        Memory.Dispose();
+        Buffer.Dispose();
+
+        Buffer = new Buffer(logicalDevice, newSize, VkBufferUsageFlags.VertexBuffer | extraUsageFlags);
+        Memory = new DeviceMemory(Buffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
     }
 
     public void Dispose() {
