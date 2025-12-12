@@ -30,7 +30,7 @@ public sealed class SpriteBatch : IDisposable {
     private PipelineLayout _pipelineLayout;
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
-    private DescriptorSet[] _descriptorSets; 
+    private DescriptorSet _currentBatchDescriptorSet; 
 
     private VertexBuffer<SpriteVertex> _vertexBuffer;
     private IndexBuffer _indexBuffer;
@@ -122,13 +122,8 @@ public sealed class SpriteBatch : IDisposable {
         );
 
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
-        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, GraphicsDevice.MAX_FRAMES_IN_FLIGHT); 
-        _descriptorPool = new DescriptorPool(_device, poolSizes, GraphicsDevice.MAX_FRAMES_IN_FLIGHT);
-        
-        _descriptorSets = new DescriptorSet[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
-        for (int i = 0; i < GraphicsDevice.MAX_FRAMES_IN_FLIGHT; i++) {
-            _descriptorSets[i] = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
-        }
+        poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 256);
+        _descriptorPool = new DescriptorPool(_device, poolSizes, 256);
         
         _spriteCapacity = 0;
         EnsureCapacity(_initialCapacity);
@@ -143,6 +138,7 @@ public sealed class SpriteBatch : IDisposable {
         _spriteCount = 0;
         _sortMode = sortMode;
         _currentTexture = null;
+        _currentBatchDescriptorSet = default;
         _commandBuffer = _graphicsDevice.RequestCurrentCommandBuffer();
 
         _transform = transform ?? CreateDefaultTransform();
@@ -150,7 +146,7 @@ public sealed class SpriteBatch : IDisposable {
         _commandBuffer.BindPipeline(_pipeline);
         Vector2 extent = new(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
         _commandBuffer.SetViewport(new Rectangle(0f, 0f, extent.X, extent.Y));
-        _commandBuffer.SetScissor(new Rectangle(0f, 0f, extent.X, extent.Y));
+        _commandBuffer.SetScissor(new Rectangle(0f, 0f, extent.X, (uint)extent.Y));
         PushTransform();
 
         return new SpriteBatchScope(this);
@@ -276,6 +272,7 @@ public sealed class SpriteBatch : IDisposable {
         if (_currentTexture is not null && !ReferenceEquals(_currentTexture, texture)) {
             Flush();
             _currentTexture = null;
+            _currentBatchDescriptorSet = default;
         }
 
         EnsureTextureBound(texture);
@@ -345,9 +342,12 @@ public sealed class SpriteBatch : IDisposable {
     }
 
     private void EnsureTextureBound(SpriteTexture texture) {
-        if (_currentTexture is null) {
-            _descriptorSets[_graphicsDevice.CurrentFrameIndex].Update(
-                texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
+        if (_currentBatchDescriptorSet.Value == VkDescriptorSet.Null || !ReferenceEquals(_currentTexture, texture)) {
+            if (_currentBatchDescriptorSet.Value != VkDescriptorSet.Null) {
+                _currentBatchDescriptorSet.Dispose();
+            }
+            _currentBatchDescriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
+            _currentBatchDescriptorSet.Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
             _currentTexture = texture;
         }
     }
@@ -403,7 +403,7 @@ public sealed class SpriteBatch : IDisposable {
     }
     
     private unsafe void Flush() {
-        if (_spriteCount == 0 || _currentTexture is null) {
+        if (_spriteCount == 0 || _currentTexture is null || _currentBatchDescriptorSet.Value == VkDescriptorSet.Null) {
             _spriteCount = 0;
             return;
         }
@@ -418,10 +418,11 @@ public sealed class SpriteBatch : IDisposable {
         vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &offset);
         vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer.Value, 0, VkIndexType.Uint32);
 
-        var currentFrameDescriptorSet = _descriptorSets[_graphicsDevice.CurrentFrameIndex];
         Span<DescriptorSet> descriptorSetsToBind = stackalloc DescriptorSet[1];
-        descriptorSetsToBind[0] = currentFrameDescriptorSet;
+        descriptorSetsToBind[0] = _currentBatchDescriptorSet;
         _commandBuffer.BindDescriptorSets(_pipelineLayout, descriptorSetsToBind);
+        _currentBatchDescriptorSet.Dispose();
+        _currentBatchDescriptorSet = default;
 
         vkCmdDrawIndexed(_commandBuffer, (uint)indexCount, 1, 0, 0, 0);
 
@@ -469,9 +470,10 @@ public sealed class SpriteBatch : IDisposable {
             Flush();
             _isActive = false;
         }
-
-        foreach (var ds in _descriptorSets) {
-            ds.Dispose();
+        
+        if (_currentBatchDescriptorSet.Value != VkDescriptorSet.Null) {
+            _currentBatchDescriptorSet.Dispose();
+            _currentBatchDescriptorSet = default;
         }
 
         _descriptorPool.Dispose();
