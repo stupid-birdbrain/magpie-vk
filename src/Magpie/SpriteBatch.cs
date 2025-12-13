@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -32,11 +33,15 @@ public sealed class SpriteBatch : IDisposable {
     private DescriptorSetLayout _descriptorSetLayout;
     private DescriptorPool _descriptorPool;
     private DescriptorSet _currentBatchDescriptorSet; 
+    private byte[] _vertexShaderCode;
+    private byte[] _fragmentShaderCode;
+    private bool _pipelineInitialized;
 
     private readonly List<BatchBuffer> _buffers = new();
     private readonly List<DescriptorSet>[] _descriptorSetsInFlight;
     private int _currentBufferIndex;
     private int _lastFrameIndex = -1;
+    private readonly Queue<RetiredPipeline> _retiredPipelines = new();
 
     private SpriteVertex[] _vertexScratch = Array.Empty<SpriteVertex>();
     private uint[] _indexScratch = Array.Empty<uint>();
@@ -91,6 +96,16 @@ public sealed class SpriteBatch : IDisposable {
 
     private BatchBuffer CurrentBuffer => _buffers[_currentBufferIndex];
 
+    private readonly struct RetiredPipeline {
+        public readonly Pipeline Pipeline;
+        public readonly int FrameIndex;
+
+        public RetiredPipeline(Pipeline pipeline, int frameIndex) {
+            Pipeline = pipeline;
+            FrameIndex = frameIndex;
+        }
+    }
+
     private BatchBuffer CreateBuffer(int spriteCapacity) {
         int resolvedCapacity = Math.Max(1, spriteCapacity);
         uint vertexBufferSize = (uint)(resolvedCapacity * 4 * Unsafe.SizeOf<SpriteVertex>());
@@ -99,6 +114,22 @@ public sealed class SpriteBatch : IDisposable {
         var vertexBuffer = new VertexBuffer<SpriteVertex>(_device, vertexBufferSize);
         var indexBuffer = new IndexBuffer(_device, indexBufferSize);
         return new BatchBuffer(vertexBuffer, indexBuffer, resolvedCapacity);
+    }
+
+    private void RetirePipeline(Pipeline pipeline) {
+        _retiredPipelines.Enqueue(new RetiredPipeline(pipeline, _graphicsDevice.CurrentFrameIndex));
+    }
+
+    private void ReleaseRetiredPipelines(int frameIndex) {
+        while (_retiredPipelines.Count > 0) {
+            RetiredPipeline retired = _retiredPipelines.Peek();
+            if (retired.FrameIndex != frameIndex) {
+                break;
+            }
+
+            _retiredPipelines.Dequeue();
+            retired.Pipeline.Dispose();
+        }
     }
 
     private void EnsureScratchCapacity(int spriteCapacity) {
@@ -116,6 +147,49 @@ public sealed class SpriteBatch : IDisposable {
         Array.Resize(ref _indexUploadScratch, indexCount);
 
         GenerateIndices(_scratchCapacity);
+    }
+
+    private void RebuildPipeline() {
+        if (_pipelineInitialized) {
+            RetirePipeline(_pipeline);
+        }
+
+        using ShaderModule vertexModule = new(_device, _vertexShaderCode);
+        using ShaderModule fragmentModule = new(_device, _fragmentShaderCode);
+
+        PipelineCreationDescription pipelineDescription = new() {
+            VertexShader = vertexModule,
+            FragmentShader = fragmentModule,
+            BlendSettings = BlendSettings.AlphaBlend,
+            DepthTestEnable = false,
+            DepthWriteEnable = false,
+            DepthCompareOp = VkCompareOp.Always,
+            StencilTestEnable = false,
+            CullMode = VkCullModeFlags.None,
+            FrontFace = VkFrontFace.CounterClockwise,
+            PolygonMode = VkPolygonMode.Fill,
+            PrimitiveTopology = VkPrimitiveTopology.TriangleList,
+            PrimitiveRestartEnable = false
+        };
+
+        VkVertexInputBindingDescription vertexBinding = new((uint)Unsafe.SizeOf<SpriteVertex>());
+        Span<VkVertexInputAttributeDescription> vertexAttributes = stackalloc VkVertexInputAttributeDescription[3];
+        vertexAttributes[0] = new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Position)));
+        vertexAttributes[1] = new(location: 1, binding: 0, format: Vector4.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Color)));
+        vertexAttributes[2] = new(location: 2, binding: 0, format: Vector2.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.TexCoord)));
+
+        _pipeline = new Pipeline(
+            _device,
+            _graphicsDevice.MainSwapchain.Format,
+            _graphicsDevice.DepthImage.Format,
+            pipelineDescription,
+            _pipelineLayout,
+            vertexBinding,
+            vertexAttributes,
+            "main"u8
+        );
+
+        _pipelineInitialized = true;
     }
 
     private void EnsureSpaceForSprites(int spritesNeeded) {
@@ -160,6 +234,7 @@ public sealed class SpriteBatch : IDisposable {
 
     private void ResetBuffersForFrame() {
         int frameIndex = _graphicsDevice.CurrentFrameIndex;
+        ReleaseRetiredPipelines(frameIndex);
 
         var descriptorSets = _descriptorSetsInFlight[frameIndex];
         foreach (var descriptorSet in descriptorSets) {
@@ -199,8 +274,8 @@ public sealed class SpriteBatch : IDisposable {
             _descriptorSetsInFlight[i] = new List<DescriptorSet>();
         }
 
-        using ShaderModule vertexModule = new(_device, vertexShaderCode.ToArray());
-        using ShaderModule fragmentModule = new(_device, fragmentShaderCode.ToArray());
+        _vertexShaderCode = vertexShaderCode.ToArray();
+        _fragmentShaderCode = fragmentShaderCode.ToArray();
 
         _descriptorSetLayout = new DescriptorSetLayout(_device, 0, VkDescriptorType.CombinedImageSampler, VkShaderStageFlags.Fragment);
 
@@ -212,38 +287,7 @@ public sealed class SpriteBatch : IDisposable {
 
         PushConstant pushConstant = new(pushConstantRange.offset, pushConstantRange.size, pushConstantRange.stageFlags);
         _pipelineLayout = new PipelineLayout(_device, [_descriptorSetLayout], [pushConstant]);
-
-        PipelineCreationDescription pipelineDescription = new() {
-            VertexShader = vertexModule,
-            FragmentShader = fragmentModule,
-            BlendSettings = BlendSettings.AlphaBlend,
-            DepthTestEnable = false, 
-            DepthWriteEnable = false,
-            DepthCompareOp = VkCompareOp.Always,
-            StencilTestEnable = false,
-            CullMode = VkCullModeFlags.None,
-            FrontFace = VkFrontFace.CounterClockwise,
-            PolygonMode = VkPolygonMode.Fill,
-            PrimitiveTopology = VkPrimitiveTopology.TriangleList,
-            PrimitiveRestartEnable = false
-        };
-
-        VkVertexInputBindingDescription vertexBinding = new((uint)Unsafe.SizeOf<SpriteVertex>());
-        Span<VkVertexInputAttributeDescription> vertexAttributes = stackalloc VkVertexInputAttributeDescription[3];
-        vertexAttributes[0] = new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Position)));
-        vertexAttributes[1] = new(location: 1, binding: 0, format: Vector4.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.Color)));
-        vertexAttributes[2] = new(location: 2, binding: 0, format: Vector2.AsFormat(), offset: (uint)Marshal.OffsetOf<SpriteVertex>(nameof(SpriteVertex.TexCoord)));
-
-        _pipeline = new Pipeline(
-            _device,
-            _graphicsDevice.MainSwapchain.Format,
-            _graphicsDevice.DepthImage.Format,
-            pipelineDescription,
-            _pipelineLayout,
-            vertexBinding,
-            vertexAttributes,
-            "main"u8
-        );
+        RebuildPipeline();
 
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 256);
@@ -253,6 +297,22 @@ public sealed class SpriteBatch : IDisposable {
         _buffers.Add(initialBuffer);
         _currentBufferIndex = 0;
         EnsureScratchCapacity(initialBuffer.SpriteCapacity);
+    }
+
+    public void SwapShaders(ReadOnlySpan<byte> vertexShaderCode, ReadOnlySpan<byte> fragmentShaderCode) {
+        if (vertexShaderCode.IsEmpty) {
+            throw new ArgumentException("Vertex shader code cannot be empty.", nameof(vertexShaderCode));
+        }
+        if (fragmentShaderCode.IsEmpty) {
+            throw new ArgumentException("Fragment shader code cannot be empty.", nameof(fragmentShaderCode));
+        }
+        if (_isActive) {
+            throw new InvalidOperationException("Cannot swap shaders while SpriteBatch is active.");
+        }
+
+        _vertexShaderCode = vertexShaderCode.ToArray();
+        _fragmentShaderCode = fragmentShaderCode.ToArray();
+        RebuildPipeline();
     }
 
     public SpriteBatchScope Begin(SpriteSortMode sortMode = SpriteSortMode.Deferred, Matrix4x4? transform = null) {
@@ -276,9 +336,10 @@ public sealed class SpriteBatch : IDisposable {
         _transform = transform ?? CreateDefaultTransform();
 
         _commandBuffer.BindPipeline(_pipeline);
-        Vector2 extent = new(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
-        _commandBuffer.SetViewport(new Rectangle(0f, 0f, extent.X, extent.Y));
-        _commandBuffer.SetScissor(new Rectangle(0f, 0f, extent.X, (uint)extent.Y));
+        float viewportWidth = Math.Max(1u, _graphicsDevice.CurrentRenderWidth);
+        float viewportHeight = Math.Max(1u, _graphicsDevice.CurrentRenderHeight);
+        _commandBuffer.SetViewport(new Rectangle(0f, 0f, viewportWidth, viewportHeight));
+        _commandBuffer.SetScissor(new Rectangle(0f, 0f, viewportWidth, viewportHeight));
         PushTransform();
 
         return new SpriteBatchScope(this);
@@ -563,8 +624,9 @@ public sealed class SpriteBatch : IDisposable {
     }
 
     private Matrix4x4 CreateDefaultTransform() {
-        Vector2 extent = new(_graphicsDevice.MainSwapchain.Width, _graphicsDevice.MainSwapchain.Height);
-        Matrix4x4 projection = Matrix4x4.CreateOrthographicOffCenter(0f, extent.X, 0f, extent.Y, -1f, 1f);
+        float width = Math.Max(1u, _graphicsDevice.CurrentRenderWidth);
+        float height = Math.Max(1u, _graphicsDevice.CurrentRenderHeight);
+        Matrix4x4 projection = Matrix4x4.CreateOrthographicOffCenter(0f, width, 0f, height, -1f, 1f);
         return projection;
     }
 
@@ -606,8 +668,16 @@ public sealed class SpriteBatch : IDisposable {
             descriptorSets.Clear();
         }
 
+        while (_retiredPipelines.Count > 0) {
+            var retired = _retiredPipelines.Dequeue();
+            retired.Pipeline.Dispose();
+        }
+
         _descriptorPool.Dispose();
-        _pipeline.Dispose();
+        if (_pipelineInitialized) {
+            _pipeline.Dispose();
+            _pipelineInitialized = false;
+        }
         _pipelineLayout.Dispose();
         _descriptorSetLayout.Dispose();
 
