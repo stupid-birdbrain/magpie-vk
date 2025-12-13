@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Magpie.Core;
 using Magpie.Utilities;
 using SDL3;
@@ -37,6 +39,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     private uint _imageIndex;
     private bool _isFrameStarted;
     private int _currentFrame;
+    private readonly Stack<RenderingScope> _renderScopeStack = new();
+    private RenderingScope _currentScope;
 
     public bool IsFrameStarted => _isFrameStarted;
     public Swapchain MainSwapchain => _mainSwapchain;
@@ -46,6 +50,8 @@ public sealed unsafe class GraphicsDevice : IDisposable {
     public int CurrentFrameIndex => _currentFrame;
     public LogicalDevice LogicalDevice => _logicalDevice;
     public DepthImage DepthImage => _depthImage;
+    public uint CurrentRenderWidth { get; private set; }
+    public uint CurrentRenderHeight { get; private set; }
     
 
     public GraphicsDevice(VulkanInstance instance, Surface surface, PhysicalDevice physicalDevice, LogicalDevice logicalDevice) {
@@ -149,38 +155,18 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         Image swapchainImage = new(_logicalDevice, _mainSwapchain.Images[_imageIndex], _mainSwapchain.Width, _mainSwapchain.Height, _mainSwapchain.Format);
         currentCmdBuffer.TransitionImageLayout(swapchainImage, VkImageLayout.Undefined, VkImageLayout.ColorAttachmentOptimal, aspects: VkImageAspectFlags.Color);
         currentCmdBuffer.TransitionImageLayout(_depthImage.Image, VkImageLayout.Undefined, VkImageLayout.DepthStencilAttachmentOptimal, aspects: VkImageAspectFlags.Depth);
-        
-        VkRenderingAttachmentInfo colorAttachment = new()
-        {
-            sType = VkStructureType.RenderingAttachmentInfo,
-            imageView = _mainSwapchain.ImageViews[_imageIndex],
-            imageLayout = VkImageLayout.ColorAttachmentOptimal,
-            loadOp = VkAttachmentLoadOp.Clear,
-            storeOp = VkAttachmentStoreOp.Store,
-            clearValue = clearColor
-        };
-        
-        VkClearValue depthClearValue = new VkClearValue { depthStencil = new VkClearDepthStencilValue(1.0f, 0) };
-        VkRenderingAttachmentInfo depthAttachment = new()
-        {
-            sType = VkStructureType.RenderingAttachmentInfo,
-            imageView = _depthImage.ImageView.Value,
-            imageLayout = VkImageLayout.DepthStencilAttachmentOptimal,
-            loadOp = VkAttachmentLoadOp.Clear,
-            storeOp = VkAttachmentStoreOp.DontCare,
-            clearValue = depthClearValue
-        };
 
-        VkRenderingInfo renderingInfo = new() {
-            sType = VkStructureType.RenderingInfo,
-            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
-            layerCount = 1,
-            colorAttachmentCount = 1,
-            pColorAttachments = &colorAttachment,
-            pDepthAttachment = &depthAttachment,
-            pStencilAttachment = null
+        BeginSwapchainRendering(currentCmdBuffer, VkAttachmentLoadOp.Clear, VkAttachmentLoadOp.Clear, clearColor);
+
+        _renderScopeStack.Clear();
+        _currentScope = new RenderingScope {
+            Type = RenderingScopeType.Swapchain,
+            SwapchainClearValue = clearColor,
+            Width = _mainSwapchain.Width,
+            Height = _mainSwapchain.Height
         };
-        vkCmdBeginRendering(currentCmdBuffer, &renderingInfo);
+        CurrentRenderWidth = _currentScope.Width;
+        CurrentRenderHeight = _currentScope.Height;
         return true;
     }
     
@@ -198,6 +184,91 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         return _mainCommandBuffers[_currentFrame];
     }
 
+    public RenderTarget CreateRenderTarget(uint width, uint height, VkFormat? format = null) {
+        VkFormat targetFormat = format ?? _mainSwapchain.Format;
+        return new RenderTarget(_logicalDevice, _graphicsCmdPool, _graphicsQueue, width, height, targetFormat);
+    }
+
+    public RenderTargetScope PushRenderTarget(RenderTarget renderTarget, VkClearValue clearValue) {
+        Span<VkClearValue> clearValues = stackalloc VkClearValue[1];
+        clearValues[0] = clearValue;
+        ReadOnlySpan<RenderTarget> targets = MemoryMarshal.CreateReadOnlySpan(ref renderTarget, 1);
+        return PushRenderTargets(targets, clearValues);
+    }
+
+    public RenderTargetScope PushRenderTargets(ReadOnlySpan<RenderTarget> renderTargets, ReadOnlySpan<VkClearValue> clearValues) {
+        if (!_isFrameStarted) {
+            throw new InvalidOperationException("cannot push render targets outside a begun frame");
+        }
+        if (renderTargets.Length == 0) {
+            throw new ArgumentException("at least one render target is required", nameof(renderTargets));
+        }
+        if (renderTargets.Length != clearValues.Length) {
+            throw new ArgumentException("renderTargets and clearValues must have matching lengths");
+        }
+
+        CmdBuffer cmd = _mainCommandBuffers[_currentFrame];
+        vkCmdEndRendering(cmd);
+
+        _renderScopeStack.Push(_currentScope);
+
+        RenderTarget[] targetsCopy = new RenderTarget[renderTargets.Length];
+        for (int i = 0; i < renderTargets.Length; i++) {
+            targetsCopy[i] = renderTargets[i];
+        }
+
+        VkClearValue[] clearCopy = new VkClearValue[clearValues.Length];
+        for (int i = 0; i < clearValues.Length; i++) {
+            clearCopy[i] = clearValues[i];
+        }
+
+        BeginRenderTargets(cmd, targetsCopy, clearCopy, VkAttachmentLoadOp.Clear, transitionToColorLayout: true);
+
+        _currentScope = new RenderingScope {
+            Type = RenderingScopeType.RenderTarget,
+            RenderTargets = targetsCopy,
+            ClearValues = clearCopy,
+            Width = targetsCopy[0].Width,
+            Height = targetsCopy[0].Height
+        };
+
+        return new RenderTargetScope(this);
+    }
+
+    public void PopRenderTargets() {
+        if (!_isFrameStarted) {
+            throw new InvalidOperationException("cannot pop render targets outside a begun frame");
+        }
+        if (_currentScope.Type != RenderingScopeType.RenderTarget) {
+            throw new InvalidOperationException("no render targets are currently bound");
+        }
+
+        CmdBuffer cmd = _mainCommandBuffers[_currentFrame];
+        vkCmdEndRendering(cmd);
+
+        var targets = _currentScope.RenderTargets!;
+        for (int i = 0; i < targets.Length; i++) {
+            RenderTarget target = targets[i];
+            if (target.CurrentLayout != VkImageLayout.ShaderReadOnlyOptimal) {
+                cmd.TransitionImageLayout(target.Image, target.CurrentLayout, VkImageLayout.ShaderReadOnlyOptimal, aspects: VkImageAspectFlags.Color);
+                target.CurrentLayout = VkImageLayout.ShaderReadOnlyOptimal;
+            }
+        }
+
+        if (_renderScopeStack.Count == 0) {
+            throw new InvalidOperationException("render target stack imbalance detected");
+        }
+
+        _currentScope = _renderScopeStack.Pop();
+
+        if (_currentScope.Type == RenderingScopeType.Swapchain) {
+            BeginSwapchainRendering(cmd, VkAttachmentLoadOp.Load, VkAttachmentLoadOp.Load, _currentScope.SwapchainClearValue);
+        }
+        else {
+            BeginRenderTargets(cmd, _currentScope.RenderTargets!, _currentScope.ClearValues!, VkAttachmentLoadOp.Load, transitionToColorLayout: false);
+        }
+    }
+
     public void Submit(CmdBuffer cmd, Fence fence) => _graphicsQueue.Submit(cmd, fence);
     
     public void End() {
@@ -209,6 +280,10 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         Semaphore currentImageAvailableSemaphore = _imageAvailableSemaphores[_currentFrame];
         Semaphore currentRenderFinishedSemaphore = _renderFinishedSemaphores[_imageIndex];
         Fence currentInFlightFence = _inFlightFences[_currentFrame];
+
+        if (_currentScope.Type != RenderingScopeType.Swapchain || _renderScopeStack.Count != 0) {
+            throw new InvalidOperationException("Render target scopes must be balanced before calling End().");
+        }
 
         vkCmdEndRendering(currentCmdBuffer);
 
@@ -313,5 +388,110 @@ public sealed unsafe class GraphicsDevice : IDisposable {
         _mainSwapchain.Dispose();
         _depthImage.Dispose();
         _surface.Dispose();
+    }
+
+    private static readonly VkClearValue DefaultDepthClearValue = new() { depthStencil = new VkClearDepthStencilValue(1.0f, 0) };
+
+    private void BeginSwapchainRendering(CmdBuffer cmd, VkAttachmentLoadOp colorLoadOp, VkAttachmentLoadOp depthLoadOp, VkClearValue clearColor) {
+        VkRenderingAttachmentInfo colorAttachment = new()
+        {
+            sType = VkStructureType.RenderingAttachmentInfo,
+            imageView = _mainSwapchain.ImageViews[_imageIndex],
+            imageLayout = VkImageLayout.ColorAttachmentOptimal,
+            loadOp = colorLoadOp,
+            storeOp = VkAttachmentStoreOp.Store,
+            clearValue = clearColor
+        };
+
+        VkRenderingAttachmentInfo depthAttachment = new()
+        {
+            sType = VkStructureType.RenderingAttachmentInfo,
+            imageView = _depthImage.ImageView.Value,
+            imageLayout = VkImageLayout.DepthStencilAttachmentOptimal,
+            loadOp = depthLoadOp,
+            storeOp = VkAttachmentStoreOp.DontCare,
+            clearValue = DefaultDepthClearValue
+        };
+
+        VkRenderingInfo renderingInfo = new()
+        {
+            sType = VkStructureType.RenderingInfo,
+            renderArea = new VkRect2D(0, 0, _mainSwapchain.Width, _mainSwapchain.Height),
+            layerCount = 1,
+            colorAttachmentCount = 1,
+            pColorAttachments = &colorAttachment,
+            pDepthAttachment = &depthAttachment,
+            pStencilAttachment = null
+        };
+
+        vkCmdBeginRendering(cmd, &renderingInfo);
+        CurrentRenderWidth = _mainSwapchain.Width;
+        CurrentRenderHeight = _mainSwapchain.Height;
+    }
+
+    private void BeginRenderTargets(CmdBuffer cmd, RenderTarget[] targets, VkClearValue[] clearValues, VkAttachmentLoadOp loadOp, bool transitionToColorLayout) {
+        int targetCount = targets.Length;
+        Span<VkRenderingAttachmentInfo> attachments = stackalloc VkRenderingAttachmentInfo[targetCount];
+
+        for (int i = 0; i < targetCount; i++) {
+            RenderTarget target = targets[i];
+            if (transitionToColorLayout && target.CurrentLayout != VkImageLayout.ColorAttachmentOptimal) {
+                cmd.TransitionImageLayout(target.Image, target.CurrentLayout, VkImageLayout.ColorAttachmentOptimal, aspects: VkImageAspectFlags.Color);
+                target.CurrentLayout = VkImageLayout.ColorAttachmentOptimal;
+            }
+
+            attachments[i] = new VkRenderingAttachmentInfo
+            {
+                sType = VkStructureType.RenderingAttachmentInfo,
+                imageView = target.ImageView.Value,
+                imageLayout = VkImageLayout.ColorAttachmentOptimal,
+                loadOp = loadOp,
+                storeOp = VkAttachmentStoreOp.Store,
+                clearValue = clearValues[i]
+            };
+        }
+
+        VkRenderingInfo renderingInfo = new()
+        {
+            sType = VkStructureType.RenderingInfo,
+            renderArea = new VkRect2D(0, 0, targets[0].Width, targets[0].Height),
+            layerCount = 1,
+            colorAttachmentCount = (uint)targetCount,
+            pDepthAttachment = null,
+            pStencilAttachment = null
+        };
+
+        fixed (VkRenderingAttachmentInfo* pAttachments = attachments)
+        {
+            renderingInfo.pColorAttachments = pAttachments;
+            vkCmdBeginRendering(cmd, &renderingInfo);
+        }
+
+        CurrentRenderWidth = targets[0].Width;
+        CurrentRenderHeight = targets[0].Height;
+    }
+
+    private enum RenderingScopeType {
+        Swapchain,
+        RenderTarget
+    }
+
+    private struct RenderingScope {
+        public RenderingScopeType Type;
+        public RenderTarget[]? RenderTargets;
+        public VkClearValue[]? ClearValues;
+        public uint Width;
+        public uint Height;
+        public VkClearValue SwapchainClearValue;
+    }
+
+    public readonly struct RenderTargetScope : IDisposable {
+        private readonly GraphicsDevice _device;
+
+        internal RenderTargetScope(GraphicsDevice device) {
+            _device = device;
+        }
+
+        public void Dispose() => _device.PopRenderTargets();
     }
 }

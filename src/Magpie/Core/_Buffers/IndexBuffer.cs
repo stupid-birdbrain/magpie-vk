@@ -1,4 +1,5 @@
 ﻿using Magpie.Core;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 
@@ -59,8 +60,18 @@ public unsafe struct IndexBuffer : IDisposable {
     }
 
     public void CopyFrom<T>(ReadOnlySpan<T> data) where T : unmanaged {
-        Memory.CopyFrom(MemoryMarshal.Cast<T, byte>(data));
-        IndexCount = (uint)data.Length;
+        CopyFrom(data, 0);
+    }
+
+    public void CopyFrom<T>(ReadOnlySpan<T> data, uint startIndex) where T : unmanaged {
+        uint elementSize = (uint)Unsafe.SizeOf<T>();
+        nuint byteOffset = (nuint)(startIndex * elementSize);
+        Memory.CopyFrom(MemoryMarshal.Cast<T, byte>(data), byteOffset);
+
+        uint endIndex = startIndex + (uint)data.Length;
+        if (endIndex > IndexCount) {
+            IndexCount = endIndex;
+        }
     }
 
     public void Resize(LogicalDevice logicalDevice, uint newSize, VkBufferUsageFlags extraUsageFlags) {

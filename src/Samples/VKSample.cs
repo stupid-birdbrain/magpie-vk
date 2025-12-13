@@ -67,6 +67,14 @@ internal sealed unsafe class VkSample {
 
     private SpriteBatch? _spriteBatch;
     private SpriteTexture? _sprite;
+    private RenderTarget? _captureTarget;
+    private RenderTarget? _processingTarget;
+    private SpriteTexture? _captureTexture;
+    private SpriteTexture? _processedTexture;
+    private byte[]? _spriteBatchDefaultVertex;
+    private byte[]? _spriteBatchDefaultFragment;
+    private byte[]? _spriteBatchGrayscaleFragment;
+    private byte[]? _spriteBatchColorShiftFragment;
 
     private Stopwatch _stopwatch;
     private int _frameCount;
@@ -278,6 +286,15 @@ internal sealed unsafe class VkSample {
         var spriteVertexCode = _compiler.CompileShader("resources/spritebatch/spritebatch.vert", ShaderKind.Vertex, true).ToArray();
         var spriteFragmentCode = _compiler.CompileShader("resources/spritebatch/spritebatch.frag", ShaderKind.Fragment, true).ToArray();
         _spriteBatch = new SpriteBatch(Graphics!, spriteVertexCode, spriteFragmentCode, 256);
+        _spriteBatchDefaultVertex = spriteVertexCode;
+        _spriteBatchDefaultFragment = spriteFragmentCode;
+        _spriteBatchGrayscaleFragment = _compiler.CompileShader("resources/postprocess/grayscale.frag", ShaderKind.Fragment, true).ToArray();
+        _spriteBatchColorShiftFragment = _compiler.CompileShader("resources/postprocess/color_shift.frag", ShaderKind.Fragment, true).ToArray();
+
+        _captureTarget = Graphics!.CreateRenderTarget(512, 512);
+        _processingTarget = Graphics!.CreateRenderTarget(512, 512);
+        _captureTexture = _captureTarget.CreateSpriteTexture(VkFilter.Linear, VkSamplerAddressMode.ClampToEdge);
+        _processedTexture = _processingTarget.CreateSpriteTexture(VkFilter.Linear, VkSamplerAddressMode.ClampToEdge);
 
         _keyboard = new();
         _mouse = new();
@@ -413,6 +430,8 @@ internal sealed unsafe class VkSample {
             return;
         }
 
+        SpriteBatch spriteBatch = _spriteBatch!;
+
         if(!graphics.Begin(Colors.LightGray)) return;
 
         UpdateShaderData();
@@ -435,8 +454,81 @@ internal sealed unsafe class VkSample {
         
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
-        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
-            sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f), Color = Colors.White});
+        bool postProcessReady =
+            _captureTarget is not null &&
+            _processingTarget is not null &&
+            _captureTexture is not null &&
+            _processedTexture is not null &&
+            _spriteBatchDefaultVertex is not null &&
+            _spriteBatchDefaultFragment is not null &&
+            _spriteBatchGrayscaleFragment is not null &&
+            _spriteBatchColorShiftFragment is not null &&
+            _sprite is not null;
+
+        void DrawSpriteRow(SpriteTexture texture, Vector2 startPosition) {
+            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
+            Vector2 spacing = new(128f, 0f);
+            scope.Draw(texture, startPosition, null, Colors.White);
+            scope.Draw(texture, startPosition + spacing, null, Colors.White);
+            scope.Draw(texture, startPosition + spacing * 2f, null, Colors.White);
+            scope.Draw(texture, startPosition + spacing * 3f, null, Colors.White);
+        }
+
+        void DrawFullscreenSprite(SpriteTexture texture, uint width, uint height) {
+            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
+            scope.Draw(texture, new Standard.Rectangle(0f, 0f, (float)width, (float)height), Colors.White);
+        }
+
+        void DrawOriginalAndGrayscale(SpriteTexture original, SpriteTexture grayscale) {
+            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
+            const float displaySize = 320f;
+            const float padding = 40f;
+            const float top = 80f;
+
+            scope.Draw(original, new Standard.Rectangle(padding, top, displaySize, displaySize), Colors.White);
+            scope.Draw(grayscale, new Standard.Rectangle(padding + displaySize + padding, top, displaySize, displaySize), Colors.White);
+        }
+
+        void DrawColorShifted(SpriteTexture inputTexture) {
+            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
+            const float displaySize = 320f;
+            const float padding = 40f;
+            const float top = 80f;
+            float left = padding + (displaySize + padding) * 2f;
+
+            scope.Draw(inputTexture, new Standard.Rectangle(left, top, displaySize, displaySize), Colors.White);
+        }
+
+        if (postProcessReady) {
+            RenderTarget captureTarget = _captureTarget!;
+            RenderTarget processingTarget = _processingTarget!;
+            SpriteTexture captureTexture = _captureTexture!;
+            SpriteTexture processedTexture = _processedTexture!;
+            SpriteTexture sourceSprite = _sprite!;
+
+            VkClearValue clearValue = Colors.Red.ToVkClearValue();
+
+            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchDefaultFragment!);
+            using (graphics.PushRenderTarget(captureTarget, clearValue)) {
+                DrawSpriteRow(sourceSprite, new Vector2(48f, 64f));
+            }
+
+            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchGrayscaleFragment!);
+            using (graphics.PushRenderTarget(processingTarget, clearValue)) {
+                DrawFullscreenSprite(captureTexture, processingTarget.Width, processingTarget.Height);
+            }
+
+            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchColorShiftFragment!);
+            DrawColorShifted(processedTexture);
+
+            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchDefaultFragment!);
+            DrawOriginalAndGrayscale(captureTexture, processedTexture);
+        }
+        else if (_sprite is not null) {
+            if (_spriteBatchDefaultVertex is not null && _spriteBatchDefaultFragment is not null) {
+                spriteBatch.SwapShaders(_spriteBatchDefaultVertex, _spriteBatchDefaultFragment);
+            }
+            DrawSpriteRow(_sprite, new Vector2(32f, 32f));
         }
 
         graphics.End();
