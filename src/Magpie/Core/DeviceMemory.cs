@@ -1,4 +1,6 @@
-﻿using Vortice.Vulkan;
+﻿using System;
+using System.Runtime.CompilerServices;
+using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
 namespace Magpie.Core;
@@ -53,17 +55,20 @@ public unsafe struct DeviceMemory : IDisposable {
         return new(byteData, length);
     }
     
-    public readonly void CopyFrom<T>(Span<T> sourceData) where T : unmanaged {
-        void* byteData;
-        vkMapMemory(Device, Value, 0, Size, 0, &byteData).CheckResult();
-        sourceData.CopyTo(new Span<T>(byteData, sourceData.Length));
-        vkUnmapMemory(Device, Value);
+    public readonly void CopyFrom<T>(Span<T> sourceData, nuint byteOffset = 0) where T : unmanaged {
+        CopyFrom((ReadOnlySpan<T>)sourceData, byteOffset);
     }
     
-    public readonly void CopyFrom<T>(ReadOnlySpan<T> sourceData) where T : unmanaged {
-        void* byteData;
-        vkMapMemory(Device, Value, 0, Size, 0, &byteData).CheckResult("failed to map memory for CopyFrom!"); 
-        sourceData.CopyTo(new (byteData, sourceData.Length));
+    public readonly void CopyFrom<T>(ReadOnlySpan<T> sourceData, nuint byteOffset = 0) where T : unmanaged {
+        ulong copySize = (ulong)(sourceData.Length * Unsafe.SizeOf<T>());
+        if (byteOffset + copySize > Size) {
+            throw new ArgumentOutOfRangeException(nameof(sourceData), "copy range exceeds backing allocation.");
+        }
+
+        byte* byteData;
+        vkMapMemory(Device, Value, 0, Size, 0, (void**)&byteData).CheckResult("failed to map memory for CopyFrom!");
+        var destination = new Span<T>((T*)(byteData + byteOffset), sourceData.Length);
+        sourceData.CopyTo(destination);
         vkUnmapMemory(Device, Value);
     }
     

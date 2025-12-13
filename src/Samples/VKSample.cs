@@ -439,6 +439,19 @@ internal sealed unsafe class VkSample {
             sb.Draw(new() { Texture = _sprite, Position = new Vector2(32f), Color = Colors.White});
         }
 
+        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(128f), Color = Colors.White});
+        }
+        
+        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(240f), Color = Colors.White});
+        }
+
+        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(512f), Color = Colors.White});
+        }
+
+
         graphics.End();
     }
 

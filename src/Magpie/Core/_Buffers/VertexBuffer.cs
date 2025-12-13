@@ -55,8 +55,16 @@ public unsafe struct VertexBuffer<TVertex> : IDisposable where TVertex : unmanag
     }
 
     public void CopyFrom(ReadOnlySpan<TVertex> data) {
-        Memory.CopyFrom(data);
-        VertexCount = (uint)data.Length;
+        CopyFrom(data, 0);
+    }
+
+    public void CopyFrom(ReadOnlySpan<TVertex> data, uint startVertex) {
+        uint byteOffset = startVertex * VertexSizeInBytes;
+        Memory.CopyFrom(data, byteOffset);
+        uint endVertex = startVertex + (uint)data.Length;
+        if (endVertex > VertexCount) {
+            VertexCount = endVertex;
+        }
     }
 
     public void Resize(LogicalDevice logicalDevice, uint newSize, VkBufferUsageFlags extraUsageFlags) {

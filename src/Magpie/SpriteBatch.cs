@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -32,17 +33,19 @@ public sealed class SpriteBatch : IDisposable {
     private DescriptorPool _descriptorPool;
     private DescriptorSet _currentBatchDescriptorSet; 
 
-    private VertexBuffer<SpriteVertex> _vertexBuffer;
-    private IndexBuffer _indexBuffer;
-    
+    private readonly List<BatchBuffer> _buffers = new();
+    private readonly List<DescriptorSet>[] _descriptorSetsInFlight;
+    private int _currentBufferIndex;
+    private int _lastFrameIndex = -1;
+
     private SpriteVertex[] _vertexScratch = Array.Empty<SpriteVertex>();
     private uint[] _indexScratch = Array.Empty<uint>();
+    private uint[] _indexUploadScratch = Array.Empty<uint>();
 
-    private int _spriteCapacity;
+    private int _scratchCapacity;
     private int _spriteCount;
     private SpriteTexture? _currentTexture;
     private bool _isActive;
-    private bool _buffersInitialized;
     private SpriteSortMode _sortMode;
     private Matrix4x4 _transform;
     private CmdBuffer _commandBuffer;
@@ -60,6 +63,122 @@ public sealed class SpriteBatch : IDisposable {
         public float LayerDepth;
     }
 
+    private sealed class BatchBuffer : IDisposable {
+        public VertexBuffer<SpriteVertex> VertexBuffer;
+        public IndexBuffer IndexBuffer;
+        public readonly int SpriteCapacity;
+        public uint VertexCursor;
+        public uint IndexCursor;
+
+        public BatchBuffer(VertexBuffer<SpriteVertex> vertexBuffer, IndexBuffer indexBuffer, int spriteCapacity) {
+            VertexBuffer = vertexBuffer;
+            IndexBuffer = indexBuffer;
+            SpriteCapacity = spriteCapacity;
+            VertexCursor = 0;
+            IndexCursor = 0;
+        }
+
+        public void Reset() {
+            VertexCursor = 0;
+            IndexCursor = 0;
+        }
+
+        public void Dispose() {
+            VertexBuffer.Dispose();
+            IndexBuffer.Dispose();
+        }
+    }
+
+    private BatchBuffer CurrentBuffer => _buffers[_currentBufferIndex];
+
+    private BatchBuffer CreateBuffer(int spriteCapacity) {
+        int resolvedCapacity = Math.Max(1, spriteCapacity);
+        uint vertexBufferSize = (uint)(resolvedCapacity * 4 * Unsafe.SizeOf<SpriteVertex>());
+        uint indexBufferSize = (uint)(resolvedCapacity * 6 * sizeof(uint));
+
+        var vertexBuffer = new VertexBuffer<SpriteVertex>(_device, vertexBufferSize);
+        var indexBuffer = new IndexBuffer(_device, indexBufferSize);
+        return new BatchBuffer(vertexBuffer, indexBuffer, resolvedCapacity);
+    }
+
+    private void EnsureScratchCapacity(int spriteCapacity) {
+        if (spriteCapacity <= _scratchCapacity) {
+            return;
+        }
+
+        _scratchCapacity = spriteCapacity;
+
+        int vertexCount = _scratchCapacity * 4;
+        int indexCount = _scratchCapacity * 6;
+
+        Array.Resize(ref _vertexScratch, vertexCount);
+        Array.Resize(ref _indexScratch, indexCount);
+        Array.Resize(ref _indexUploadScratch, indexCount);
+
+        GenerateIndices(_scratchCapacity);
+    }
+
+    private void EnsureSpaceForSprites(int spritesNeeded) {
+        while (true) {
+            var buffer = CurrentBuffer;
+            int committedSprites = (int)(buffer.VertexCursor / 4);
+            int remainingSprites = buffer.SpriteCapacity - committedSprites - _spriteCount;
+
+            if (spritesNeeded <= remainingSprites) {
+                EnsureScratchCapacity(buffer.SpriteCapacity);
+                return;
+            }
+
+            Flush();
+
+            buffer = CurrentBuffer;
+            committedSprites = (int)(buffer.VertexCursor / 4);
+            remainingSprites = buffer.SpriteCapacity - committedSprites - _spriteCount;
+
+            if (spritesNeeded <= remainingSprites) {
+                EnsureScratchCapacity(buffer.SpriteCapacity);
+                return;
+            }
+
+            MoveToNextBuffer(Math.Max(buffer.SpriteCapacity * 2, Math.Max(spritesNeeded, _initialCapacity)));
+        }
+    }
+
+    private void MoveToNextBuffer(int minimumSpriteCapacity) {
+        if (_currentBufferIndex + 1 < _buffers.Count) {
+            _currentBufferIndex++;
+        }
+        else {
+            int capacity = Math.Max(minimumSpriteCapacity, CurrentBuffer.SpriteCapacity * 2);
+            var newBuffer = CreateBuffer(capacity);
+            _buffers.Add(newBuffer);
+            _currentBufferIndex = _buffers.Count - 1;
+        }
+
+        EnsureScratchCapacity(CurrentBuffer.SpriteCapacity);
+    }
+
+    private void ResetBuffersForFrame() {
+        int frameIndex = _graphicsDevice.CurrentFrameIndex;
+
+        var descriptorSets = _descriptorSetsInFlight[frameIndex];
+        foreach (var descriptorSet in descriptorSets) {
+            if (descriptorSet.Value != VkDescriptorSet.Null) {
+                descriptorSet.Dispose();
+            }
+        }
+        descriptorSets.Clear();
+
+        foreach (var buffer in _buffers) {
+            buffer.Reset();
+        }
+
+        _currentBufferIndex = 0;
+        _currentTexture = null;
+        _currentBatchDescriptorSet = default;
+        _spriteCount = 0;
+    }
+
     public SpriteBatch(GraphicsDevice graphicsDevice, ReadOnlySpan<byte> vertexShaderCode, ReadOnlySpan<byte> fragmentShaderCode, int initialSpriteCapacity = 256) {
         if (graphicsDevice is null) {
             throw new ArgumentNullException(nameof(graphicsDevice));
@@ -74,6 +193,11 @@ public sealed class SpriteBatch : IDisposable {
         _graphicsDevice = graphicsDevice;
         _device = graphicsDevice.LogicalDevice;
         _initialCapacity = Math.Max(1, initialSpriteCapacity);
+
+        _descriptorSetsInFlight = new List<DescriptorSet>[GraphicsDevice.MAX_FRAMES_IN_FLIGHT];
+        for (int i = 0; i < _descriptorSetsInFlight.Length; i++) {
+            _descriptorSetsInFlight[i] = new List<DescriptorSet>();
+        }
 
         using ShaderModule vertexModule = new(_device, vertexShaderCode.ToArray());
         using ShaderModule fragmentModule = new(_device, fragmentShaderCode.ToArray());
@@ -124,12 +248,20 @@ public sealed class SpriteBatch : IDisposable {
         Span<DescriptorPoolSize> poolSizes = stackalloc DescriptorPoolSize[1];
         poolSizes[0] = new DescriptorPoolSize(VkDescriptorType.CombinedImageSampler, 256);
         _descriptorPool = new DescriptorPool(_device, poolSizes, 256);
-        
-        _spriteCapacity = 0;
-        EnsureCapacity(_initialCapacity);
+
+        var initialBuffer = CreateBuffer(_initialCapacity);
+        _buffers.Add(initialBuffer);
+        _currentBufferIndex = 0;
+        EnsureScratchCapacity(initialBuffer.SpriteCapacity);
     }
 
     public SpriteBatchScope Begin(SpriteSortMode sortMode = SpriteSortMode.Deferred, Matrix4x4? transform = null) {
+        int frameIndex = _graphicsDevice.CurrentFrameIndex;
+        if (_lastFrameIndex != frameIndex) {
+            ResetBuffersForFrame();
+            _lastFrameIndex = frameIndex;
+        }
+
         if (_isActive) {
             throw new InvalidOperationException("SpriteBatch.Begin can only be called once per frame.");
         }
@@ -160,6 +292,7 @@ public sealed class SpriteBatch : IDisposable {
         Flush();
         _isActive = false;
         _currentTexture = null;
+        _currentBatchDescriptorSet = default;
         _spriteCount = 0;
         _commandBuffer = default;
     }
@@ -267,7 +400,7 @@ public sealed class SpriteBatch : IDisposable {
             return; 
         }
 
-        EnsureCapacity(_spriteCount + 1);
+        EnsureSpaceForSprites(1);
 
         if (_currentTexture is not null && !ReferenceEquals(_currentTexture, texture)) {
             Flush();
@@ -276,8 +409,6 @@ public sealed class SpriteBatch : IDisposable {
         }
 
         EnsureTextureBound(texture);
-
-        Vector4 colorVec = color.ToVector4();
 
         float u0, v0, u1, v1;
         if (sourceRectangle.HasValue) {
@@ -342,50 +473,18 @@ public sealed class SpriteBatch : IDisposable {
     }
 
     private void EnsureTextureBound(SpriteTexture texture) {
-        if (_currentBatchDescriptorSet.Value == VkDescriptorSet.Null || !ReferenceEquals(_currentTexture, texture)) {
-            if (_currentBatchDescriptorSet.Value != VkDescriptorSet.Null) {
-                _currentBatchDescriptorSet.Dispose();
-            }
-            _currentBatchDescriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
-            _currentBatchDescriptorSet.Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
-            _currentTexture = texture;
-        }
-    }
-
-    private void EnsureCapacity(int requiredSpriteCount) {
-        if (requiredSpriteCount <= _spriteCapacity) {
+        if (_currentBatchDescriptorSet.Value != VkDescriptorSet.Null && ReferenceEquals(_currentTexture, texture)) {
             return;
         }
 
-        int newCapacity = _spriteCapacity == 0 ? _initialCapacity : _spriteCapacity;
-        while (newCapacity < requiredSpriteCount) {
-            newCapacity *= 2;
-        }
+        var descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
+        descriptorSet.Update(texture.ImageView, texture.Sampler, VkDescriptorType.CombinedImageSampler);
 
-        _spriteCapacity = newCapacity;
+        _currentBatchDescriptorSet = descriptorSet;
+        _currentTexture = texture;
 
-        int vertexCount = _spriteCapacity * 4;
-        int indexCount = _spriteCapacity * 6;
-
-        Array.Resize(ref _vertexScratch, vertexCount);
-        Array.Resize(ref _indexScratch, indexCount);
-
-        uint newVertexBufferSize = (uint)(vertexCount * Unsafe.SizeOf<SpriteVertex>());
-        uint newIndexBufferSize = (uint)(indexCount * sizeof(uint));
-
-        if (!_buffersInitialized) {
-            _vertexBuffer = new VertexBuffer<SpriteVertex>(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
-            _indexBuffer = new IndexBuffer(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
-            _buffersInitialized = true;
-        }
-        else
-        {
-            _vertexBuffer.Resize(_device, newVertexBufferSize, VkBufferUsageFlags.VertexBuffer);
-            _indexBuffer.Resize(_device, newIndexBufferSize, VkBufferUsageFlags.IndexBuffer);
-        }
-
-        GenerateIndices(_spriteCapacity); 
-        _indexBuffer.CopyFrom(new ReadOnlySpan<uint>(_indexScratch, 0, indexCount));
+        int frameIndex = _graphicsDevice.CurrentFrameIndex;
+        _descriptorSetsInFlight[frameIndex].Add(descriptorSet);
     }
 
     private void GenerateIndices(int spriteCapacity) {
@@ -403,28 +502,50 @@ public sealed class SpriteBatch : IDisposable {
     }
     
     private unsafe void Flush() {
-        if (_spriteCount == 0 || _currentTexture is null || _currentBatchDescriptorSet.Value == VkDescriptorSet.Null) {
+        if (_spriteCount == 0) {
+            return;
+        }
+
+        if (_currentTexture is null || _currentBatchDescriptorSet.Value == VkDescriptorSet.Null) {
             _spriteCount = 0;
             return;
         }
 
+        BatchBuffer buffer = CurrentBuffer;
+
         int vertexCount = _spriteCount * 4;
         int indexCount = _spriteCount * 6;
 
-        _vertexBuffer.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount));
+        uint vertexCapacity = (uint)(buffer.SpriteCapacity * 4);
+        uint indexCapacity = (uint)(buffer.SpriteCapacity * 6);
 
-        VkBuffer vertexBufferHandle = _vertexBuffer.Buffer.Value;
-        ulong offset = 0;
-        vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &offset);
-        vkCmdBindIndexBuffer(_commandBuffer, _indexBuffer.Buffer.Value, 0, VkIndexType.Uint32);
+        if (buffer.VertexCursor + (uint)vertexCount > vertexCapacity || buffer.IndexCursor + (uint)indexCount > indexCapacity) {
+            MoveToNextBuffer(Math.Max(buffer.SpriteCapacity * 2, _spriteCount));
+            buffer = CurrentBuffer;
+        }
+
+        uint vertexStart = buffer.VertexCursor;
+        uint indexStart = buffer.IndexCursor;
+
+        buffer.VertexBuffer.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount), vertexStart);
+
+        Span<uint> uploadIndices = _indexUploadScratch.AsSpan(0, indexCount);
+        _indexScratch.AsSpan(0, indexCount).CopyTo(uploadIndices);
+        buffer.IndexBuffer.CopyFrom(uploadIndices, indexStart);
+
+        VkBuffer vertexBufferHandle = buffer.VertexBuffer.Buffer.Value;
+        ulong vertexOffset = 0;
+        vkCmdBindVertexBuffers(_commandBuffer, 0, 1, &vertexBufferHandle, &vertexOffset);
+        vkCmdBindIndexBuffer(_commandBuffer, buffer.IndexBuffer.Buffer.Value, 0, VkIndexType.Uint32);
 
         Span<DescriptorSet> descriptorSetsToBind = stackalloc DescriptorSet[1];
         descriptorSetsToBind[0] = _currentBatchDescriptorSet;
         _commandBuffer.BindDescriptorSets(_pipelineLayout, descriptorSetsToBind);
-        _currentBatchDescriptorSet.Dispose();
-        _currentBatchDescriptorSet = default;
 
-        vkCmdDrawIndexed(_commandBuffer, (uint)indexCount, 1, 0, 0, 0);
+        vkCmdDrawIndexed(_commandBuffer, (uint)indexCount, 1, indexStart, (int)vertexStart, 0);
+
+        buffer.VertexCursor += (uint)vertexCount;
+        buffer.IndexCursor += (uint)indexCount;
 
         _spriteCount = 0;
     }
@@ -476,16 +597,24 @@ public sealed class SpriteBatch : IDisposable {
             _currentBatchDescriptorSet = default;
         }
 
+        foreach (var descriptorSets in _descriptorSetsInFlight) {
+            foreach (var descriptorSet in descriptorSets) {
+                if (descriptorSet.Value != VkDescriptorSet.Null) {
+                    descriptorSet.Dispose();
+                }
+            }
+            descriptorSets.Clear();
+        }
+
         _descriptorPool.Dispose();
         _pipeline.Dispose();
         _pipelineLayout.Dispose();
         _descriptorSetLayout.Dispose();
 
-        if (_buffersInitialized) {
-            _vertexBuffer.Dispose();
-            _indexBuffer.Dispose();
-            _buffersInitialized = false;
+        foreach (var buffer in _buffers) {
+            buffer.Dispose();
         }
+        _buffers.Clear();
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
