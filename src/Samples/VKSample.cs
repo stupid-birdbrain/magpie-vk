@@ -47,7 +47,7 @@ internal sealed unsafe class VkSample {
 
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
-    
+
     private const int MAX_INSTANCES = 12;
     private int _instanceCount = 12;
     private InstanceTransform[] _instanceTransforms = new InstanceTransform[MAX_INSTANCES];
@@ -121,11 +121,11 @@ internal sealed unsafe class VkSample {
             if(idx >= args.Length) {
                 throw new ArgumentException("no index provided for --override argument");
             }
-            
+
             if(!int.TryParse(args[idx], out int deviceIndex)) {
                 throw new ArgumentException("invalid index provided for --override argument");
             }
-            
+
             if(!_vkInstance.TryGetPhysicalDeviceByIndex(deviceIndex, requiredDeviceExtensions, out bestDevice)) {
                 throw new InvalidOperationException($"no valid physical device found at index {deviceIndex}");
             }
@@ -136,14 +136,14 @@ internal sealed unsafe class VkSample {
             }
         }
 
-        if (!bestDevice.TryGetGraphicsQueueFamily(out uint graphicsQueueFamilyIndex)) {
+        if(!bestDevice.TryGetGraphicsQueueFamily(out uint graphicsQueueFamilyIndex)) {
             throw new Exception("selected physical device does not have a graphics queue family");
         }
 
         _vkDevice = new(bestDevice, [graphicsQueueFamilyIndex], requiredDeviceExtensions);
         Console.WriteLine("selected physical device info:" + bestDevice.ToString());
 
-        Graphics = new (_vkInstance, _vkSurface, bestDevice, _vkDevice);
+        Graphics = new(_vkInstance, _vkSurface, bestDevice, _vkDevice);
         _sprite = CreateTextureImage("resources/hashbrown.png");
 
         var entryPoint = "main"u8;
@@ -153,10 +153,10 @@ internal sealed unsafe class VkSample {
 
         var data = _compiler.ReflectShader(_compiler.CompileShader(@"resources/base_textured/base.frag", ShaderKind.Fragment, true).ToArray());
         Console.WriteLine(data.ToString());
-        
+
         var vertmodule = new ShaderModule(_vkDevice, vertShaderCode.ToArray());
         var fragmodule = new ShaderModule(_vkDevice, fragShaderCode.ToArray());
-        
+
         VkVertexInputBindingDescription vertexInputBinding = new((uint)VertexPositionColorTexture.SizeInBytes);
         ReadOnlySpan<VkVertexInputAttributeDescription> vertexInputAttributes = stackalloc VkVertexInputAttributeDescription[3] {
             new(location: 0, binding: 0, format: Vector3.AsFormat(), offset: (uint)Marshal.OffsetOf<VertexPositionColorTexture>(nameof(VertexPositionColorTexture.Position))),
@@ -173,7 +173,8 @@ internal sealed unsafe class VkSample {
         descriptorSetBindings[1] = new(1, VkDescriptorType.StorageBuffer, 1, VkShaderStageFlags.Vertex);
         _descriptorSetLayout = new(_vkDevice, descriptorSetBindings);
 
-        VkPushConstantRange vkPushConstantRange = new VkPushConstantRange {
+        VkPushConstantRange vkPushConstantRange = new VkPushConstantRange
+        {
             stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment,
             offset = 0,
             size = (uint)Marshal.SizeOf<PushConstants>()
@@ -181,8 +182,9 @@ internal sealed unsafe class VkSample {
         var pushConstant = new PushConstant(vkPushConstantRange.offset, vkPushConstantRange.size, vkPushConstantRange.stageFlags);
 
         _pipelineLayout = new(_vkDevice, [_descriptorSetLayout], [pushConstant]);
-        
-        PipelineCreationDescription pipelineDescription = new() {
+
+        PipelineCreationDescription pipelineDescription = new()
+        {
             VertexShader = vertmodule,
             FragmentShader = fragmodule,
 
@@ -191,7 +193,7 @@ internal sealed unsafe class VkSample {
             DepthWriteEnable = true,
             DepthCompareOp = VkCompareOp.Less,
             StencilTestEnable = false,
-    
+
             CullMode = VkCullModeFlags.None,
             FrontFace = VkFrontFace.CounterClockwise,
             PolygonMode = VkPolygonMode.Fill,
@@ -252,7 +254,7 @@ internal sealed unsafe class VkSample {
             new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, 0.5f), Colors.White.ToVector4(), new Vector2(1.0f, 1.0f)), // 22
             new VertexPositionColorTexture(new Vector3(-0.5f, 0.5f, -0.5f), Colors.White.ToVector4(), new Vector2(0.0f, 1.0f)) // 23
         ];
-        
+
         ReadOnlySpan<uint> sourceIndexData =
         [
             0, 1, 2, 2, 3, 0,
@@ -276,7 +278,7 @@ internal sealed unsafe class VkSample {
 
         _descriptorSet = _descriptorPool.AllocateDescriptorSet(_descriptorSetLayout);
 
-        if (_sprite is null) {
+        if(_sprite is null) {
             throw new InvalidOperationException("texture was not created before descriptor setup.");
         }
 
@@ -298,13 +300,13 @@ internal sealed unsafe class VkSample {
 
         _keyboard = new();
         _mouse = new();
-        
-        while (!Quit) {
+
+        while(!Quit) {
             _keyboard.Update();
             _mouse.Update();
-            
+
             Time.Start();
-            while (_sdlContext.PollEvent(out var @event)) {
+            while(_sdlContext.PollEvent(out var @event)) {
                 HandleEvent(@event);
 
                 switch(@event.Type) {
@@ -317,10 +319,10 @@ internal sealed unsafe class VkSample {
                         break;
                     case (uint)SDL.EventType.MouseMotion:
                         _mouse.SetPosition(new Vector2(@event.Motion.X, @event.Motion.Y));
-                        if (_isRelativeMouseMode) {
+                        if(_isRelativeMouseMode) {
                             _mouse.AddRelativeDelta(new Vector2(@event.Motion.XRel, @event.Motion.YRel));
                         }
-                        
+
                         break;
                     case (uint)SDL.EventType.MouseButtonDown:
                         _mouse.SetButtonState((Mouse.Button)@event.Button.Button, true);
@@ -333,18 +335,18 @@ internal sealed unsafe class VkSample {
                         break;
                 }
             }
-            
+
             if(_mouse.WasButtonReleased(Mouse.Button.RightButton))
                 Console.WriteLine("no longer pressed");
-            
+
             var scrollDelta = _mouse.GetScrollDelta();
-            if (scrollDelta != Vector2.Zero) {
+            if(scrollDelta != Vector2.Zero) {
                 Console.WriteLine($"scroll: {scrollDelta}");
             }
-            
+
             HandleContinuousInput();
             UpdateCameraMovement();
-            
+
             Time.Update();
             Draw();
             Time.Stop();
@@ -362,12 +364,12 @@ internal sealed unsafe class VkSample {
     }
 
     private void HandleEvent(SDL.Event @event) {
-        switch (@event.Type) {
+        switch(@event.Type) {
             case (uint)SDL.EventType.Quit:
                 Quit = true;
                 break;
             case (uint)SDL.EventType.KeyDown:
-                if (@event.Key.Key == SDL.Keycode.Escape)
+                if(@event.Key.Key == SDL.Keycode.Escape)
                     Quit = true;
                 break;
             case (uint)SDL.EventType.MouseMotion:
@@ -379,14 +381,14 @@ internal sealed unsafe class VkSample {
     }
 
     private void UpdateCameraMovement() {
-        if (_isRelativeMouseMode) {
+        if(_isRelativeMouseMode) {
             Vector2 mouseDelta = _mouse.GetRelativeDelta();
 
             _cameraYaw += mouseDelta.X * 0.005f;
             _cameraPitch -= mouseDelta.Y * 0.005f;
 
             _cameraPitch = Math.Clamp(_cameraPitch, -MathF.PI * 0.49f, MathF.PI * 0.49f);
-            
+
             _cameraFront.X = MathF.Cos(_cameraYaw) * MathF.Cos(_cameraPitch);
             _cameraFront.Y = MathF.Sin(_cameraPitch);
             _cameraFront.Z = MathF.Sin(_cameraYaw) * MathF.Cos(_cameraPitch);
@@ -400,23 +402,23 @@ internal sealed unsafe class VkSample {
         Vector3 currentCameraFront = _cameraFront;
         Vector3 flatCameraFront = Vector3.Normalize(new Vector3(_cameraFront.X, 0, _cameraFront.Z));
         Vector3 right = Vector3.Normalize(Vector3.Cross(flatCameraFront, _cameraUp));
-    
-        if (_keyboard.IsKeyDown(Keyboard.Keys.W)) {
+
+        if(_keyboard.IsKeyDown(Keyboard.Keys.W)) {
             _cameraPosition += flatCameraFront * moveSpeed;
         }
-        if (_keyboard.IsKeyDown(Keyboard.Keys.S)) {
+        if(_keyboard.IsKeyDown(Keyboard.Keys.S)) {
             _cameraPosition -= flatCameraFront * moveSpeed;
         }
-        if (_keyboard.IsKeyDown(Keyboard.Keys.A)) {
+        if(_keyboard.IsKeyDown(Keyboard.Keys.A)) {
             _cameraPosition -= right * moveSpeed;
         }
-        if (_keyboard.IsKeyDown(Keyboard.Keys.D)) {
+        if(_keyboard.IsKeyDown(Keyboard.Keys.D)) {
             _cameraPosition += right * moveSpeed;
         }
-        if (_keyboard.IsKeyDown(Keyboard.Keys.Q)) {
+        if(_keyboard.IsKeyDown(Keyboard.Keys.Q)) {
             _cameraPosition += _cameraUp * moveSpeed;
         }
-        if (_keyboard.IsKeyDown(Keyboard.Keys.E)) {
+        if(_keyboard.IsKeyDown(Keyboard.Keys.E)) {
             _cameraPosition -= _cameraUp * moveSpeed;
         }
     }
@@ -425,8 +427,8 @@ internal sealed unsafe class VkSample {
         var graphics = Graphics;
         Debug.Assert(graphics != null);
         Debug.Assert(_spriteBatch != null);
-        
-        if (graphics is null) {
+
+        if(graphics is null) {
             return;
         }
 
@@ -439,7 +441,7 @@ internal sealed unsafe class VkSample {
         var cmd = graphics.RequestCurrentCommandBuffer();
 
         cmd.BindPipeline(_pipeline);
-        
+
         Span<DescriptorSet> descriptorSets = stackalloc DescriptorSet[1];
         descriptorSets[0] = _descriptorSet;
 
@@ -451,7 +453,7 @@ internal sealed unsafe class VkSample {
 
         cmd.BindVertexBuffer(_vertexBuffer);
         cmd.BindIndexBuffer(_indexBuffer);
-        
+
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
 
         bool postProcessReady =
@@ -529,7 +531,7 @@ internal sealed unsafe class VkSample {
                 spriteBatch.SwapShaders(_spriteBatchDefaultVertex, _spriteBatchDefaultFragment);
             }
             DrawSpriteRow(_sprite, new Vector2(32f, 32f));
-        }
+            }
 
         graphics.End();
     }
@@ -592,7 +594,8 @@ internal sealed unsafe class VkSample {
         );
         proj.M22 *= -1;
 
-        PushConstants globalPushConstants = new() {
+        PushConstants globalPushConstants = new()
+        {
             View = view,
             Proj = proj
         };
@@ -606,18 +609,18 @@ internal sealed unsafe class VkSample {
             (uint)Marshal.SizeOf<PushConstants>(),
             &globalPushConstants
         );
-        
+
         float currentTime = Time.GlobalTime;
         int sideLength = (int)MathF.Floor(MathF.Pow(MAX_INSTANCES, 1.0f / 3.0f));
         float cubeSpacing = 1.1f;
         float totalSideLength = sideLength * cubeSpacing;
-        float offset = -totalSideLength / 2.0f + cubeSpacing / 2.0f; 
+        float offset = -totalSideLength / 2.0f + cubeSpacing / 2.0f;
 
         int instanceIndex = 0;
-        for (int x = 0; x < sideLength; x++) {
-            for (int y = 0; y < sideLength; y++) {
-                for (int z = 0; z < sideLength; z++) {
-                    if (instanceIndex >= _instanceCount) break;
+        for(int x = 0; x < sideLength; x++) {
+            for(int y = 0; y < sideLength; y++) {
+                for(int z = 0; z < sideLength; z++) {
+                    if(instanceIndex >= _instanceCount) break;
 
                     var position = new Vector3(
                         x * cubeSpacing + offset,
@@ -626,15 +629,15 @@ internal sealed unsafe class VkSample {
                     );
 
                     var translation = Matrix4x4.CreateTranslation(position);
-                    
+
                     var scale = Matrix4x4.CreateScale(0.35f);
 
                     _instanceTransforms[instanceIndex].Model = scale * translation;
                     instanceIndex++;
                 }
-                if (instanceIndex >= _instanceCount) break;
+                if(instanceIndex >= _instanceCount) break;
             }
-            if (instanceIndex >= _instanceCount) break;
+            if(instanceIndex >= _instanceCount) break;
         }
 
         _instanceMemory.CopyFrom(new ReadOnlySpan<InstanceTransform>(_instanceTransforms, 0, _instanceCount));
