@@ -45,7 +45,6 @@ public sealed class SpriteBatch : IDisposable {
 
     private SpriteVertex[] _vertexScratch = Array.Empty<SpriteVertex>();
     private uint[] _indexScratch = Array.Empty<uint>();
-    private uint[] _indexUploadScratch = Array.Empty<uint>();
 
     private int _scratchCapacity;
     private int _spriteCount;
@@ -137,6 +136,7 @@ public sealed class SpriteBatch : IDisposable {
             return;
         }
 
+        int oldCapacity = _scratchCapacity;
         _scratchCapacity = spriteCapacity;
 
         int vertexCount = _scratchCapacity * 4;
@@ -144,9 +144,8 @@ public sealed class SpriteBatch : IDisposable {
 
         Array.Resize(ref _vertexScratch, vertexCount);
         Array.Resize(ref _indexScratch, indexCount);
-        Array.Resize(ref _indexUploadScratch, indexCount);
 
-        GenerateIndices(_scratchCapacity);
+        GenerateIndices(oldCapacity, _scratchCapacity);
     }
 
     private void RebuildPipeline() {
@@ -521,11 +520,12 @@ public sealed class SpriteBatch : IDisposable {
         Vector2 texCoordBR = new(u1, v1);
         Vector2 texCoordBL = new(u0, v1);
 
+        Vector4 colorVec = color.ToVector4();
         int vertexBase = _spriteCount * 4;
-        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), color.ToVector4(), texCoordTL);
-        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), color.ToVector4(), texCoordTR);
-        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), color.ToVector4(), texCoordBR);
-        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), color.ToVector4(), texCoordBL);
+        _vertexScratch[vertexBase + 0] = new SpriteVertex(new Vector3(topLeft, layerDepth), colorVec, texCoordTL);
+        _vertexScratch[vertexBase + 1] = new SpriteVertex(new Vector3(topRight, layerDepth), colorVec, texCoordTR);
+        _vertexScratch[vertexBase + 2] = new SpriteVertex(new Vector3(bottomRight, layerDepth), colorVec, texCoordBR);
+        _vertexScratch[vertexBase + 3] = new SpriteVertex(new Vector3(bottomLeft, layerDepth), colorVec, texCoordBL);
 
         _spriteCount++;
         if (_sortMode == SpriteSortMode.Immediate) {
@@ -548,17 +548,66 @@ public sealed class SpriteBatch : IDisposable {
         _descriptorSetsInFlight[frameIndex].Add(descriptorSet);
     }
 
-    private void GenerateIndices(int spriteCapacity) {
-        for (int i = 0; i < spriteCapacity; i++) {
-            int vertexStart = i * 4;
-            int indexStart = i * 6;
+    private unsafe void GenerateIndices(int start, int end) {
+        fixed (uint* indexBase = _indexScratch) {
+            uint* ptr = indexBase + (start * 6);
+            
+            int count = end - start;
+            int i = start;
+            
+            while (count >= 4) {
+                uint vStart0 = (uint)(i * 4);
+                uint vStart1 = (uint)((i + 1) * 4);
+                uint vStart2 = (uint)((i + 2) * 4);
+                uint vStart3 = (uint)((i + 3) * 4);
 
-            _indexScratch[indexStart + 0] = (uint)vertexStart;
-            _indexScratch[indexStart + 1] = (uint)(vertexStart + 1);
-            _indexScratch[indexStart + 2] = (uint)(vertexStart + 2);
-            _indexScratch[indexStart + 3] = (uint)(vertexStart + 2);
-            _indexScratch[indexStart + 4] = (uint)(vertexStart + 3);
-            _indexScratch[indexStart + 5] = (uint)vertexStart;
+                ptr[0] = vStart0;
+                ptr[1] = vStart0 + 1;
+                ptr[2] = vStart0 + 2;
+                ptr[3] = vStart0 + 2;
+                ptr[4] = vStart0 + 3;
+                ptr[5] = vStart0;
+
+                ptr[6] = vStart1;
+                ptr[7] = vStart1 + 1;
+                ptr[8] = vStart1 + 2;
+                ptr[9] = vStart1 + 2;
+                ptr[10] = vStart1 + 3;
+                ptr[11] = vStart1;
+
+                ptr[12] = vStart2;
+                ptr[13] = vStart2 + 1;
+                ptr[14] = vStart2 + 2;
+                ptr[15] = vStart2 + 2;
+                ptr[16] = vStart2 + 3;
+                ptr[17] = vStart2;
+
+                ptr[18] = vStart3;
+                ptr[19] = vStart3 + 1;
+                ptr[20] = vStart3 + 2;
+                ptr[21] = vStart3 + 2;
+                ptr[22] = vStart3 + 3;
+                ptr[23] = vStart3;
+
+                ptr += 24;
+                i += 4;
+                count -= 4;
+            }
+
+            while (count > 0) {
+                uint vertexStart = (uint)(i * 4);
+
+                ptr[0] = vertexStart;
+                ptr[1] = vertexStart + 1;
+                ptr[2] = vertexStart + 2;
+                ptr[3] = vertexStart + 2;
+                ptr[4] = vertexStart + 3;
+                ptr[5] = vertexStart;
+
+                ptr += 6;
+                i++;
+                count--;
+            }
         }
     }
     
@@ -590,9 +639,7 @@ public sealed class SpriteBatch : IDisposable {
 
         buffer.VertexBuffer.CopyFrom(new ReadOnlySpan<SpriteVertex>(_vertexScratch, 0, vertexCount), vertexStart);
 
-        Span<uint> uploadIndices = _indexUploadScratch.AsSpan(0, indexCount);
-        _indexScratch.AsSpan(0, indexCount).CopyTo(uploadIndices);
-        buffer.IndexBuffer.CopyFrom(uploadIndices, indexStart);
+        buffer.IndexBuffer.CopyFrom(new ReadOnlySpan<uint>(_indexScratch, 0, indexCount), indexStart);
 
         VkBuffer vertexBufferHandle = buffer.VertexBuffer.Buffer.Value;
         ulong vertexOffset = 0;
