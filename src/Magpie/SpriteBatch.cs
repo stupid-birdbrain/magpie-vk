@@ -556,9 +556,9 @@ public sealed class SpriteBatch : IDisposable {
 		}
 		else {
 			u0 = 0f;
-			v0 = 0f;
+			v0 = 1f;
 			u1 = 1f;
-			v1 = 1f;
+			v1 = 0f;
 		}
 
 		if ((sprite.Effects & SpriteEffects.FlipHorizontally) != 0) {
