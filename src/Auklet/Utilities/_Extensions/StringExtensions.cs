@@ -3,9 +3,9 @@ using System.Text;
 
 namespace Magpie.Utilities;
 
-public static class StringExtensions {
+internal static class StringExtensions {
     extension(string str) {
-        public unsafe byte* ToUtf8CharPtr() {
+        internal unsafe byte* ToUtf8CharPtr() {
             byte[] bytes = Encoding.UTF8.GetBytes(str);
             IntPtr ptr = Marshal.AllocHGlobal(bytes.Length + 1);
             Marshal.Copy(bytes, 0, ptr, bytes.Length);
