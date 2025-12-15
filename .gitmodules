@@ -4,6 +4,3 @@
 [submodule "deps/magpie-shaderc"]
 	path = deps/magpie-shaderc
 	url = https://github.com/stupid-birdbrain/magpie-shaderc.git
-[submodule "deps/stained-glass"]
-	path = deps/stained-glass
-	url = https://github.com/stupid-birdbrain/stained-glass.git
