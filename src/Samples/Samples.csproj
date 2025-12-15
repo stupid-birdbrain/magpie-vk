@@ -12,7 +12,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="../Magpie/Magpie.csproj" />
+      <ProjectReference Include="../Auklet/Auklet.csproj" />
       <ProjectReference Include="../../deps/magpie-shaderc/src/ShaderCompilation/ShaderCompilation.csproj" />
       <ProjectReference Include="../../deps/stained-glass/src/StainedGlass/StainedGlass.csproj" />
     </ItemGroup>
@@ -43,6 +43,10 @@
     
 
     <ItemGroup>
+        <None Update="**/*.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        
         <None Update="**/*.spv">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>

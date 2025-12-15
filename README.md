@@ -1,3 +1,3 @@
-# magpie-vk
+# auklet
 
-wip vulkan abstraction, renderer itself is seperate (private)
+a thin abstraction layer over vulkan

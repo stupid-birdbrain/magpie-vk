@@ -1,7 +1,8 @@
-﻿using Magpie;
+﻿using Auklet;
+using Magpie;
 using System.Diagnostics;
 using System.Numerics;
-using Magpie.Core;
+using Auklet.Core;
 using Magpie.Utilities;
 using SDL3;
 using ShaderCompilation;
@@ -12,9 +13,8 @@ using StainedGlass;
 using Standard;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
-using Buffer = Magpie.Core.Buffer;
-using Color = Standard.Color;
-using Image = Magpie.Core.Image;
+using Buffer = Auklet.Core.Buffer;
+using Image = Auklet.Core.Image;
 
 namespace Samples;
 
@@ -48,8 +48,8 @@ internal sealed unsafe class VkSample {
     private VertexBuffer<VertexPositionColorTexture> _vertexBuffer;
     private IndexBuffer _indexBuffer;
 
-    private const int MAX_INSTANCES = 12;
-    private int _instanceCount = 12;
+    private const int MAX_INSTANCES = 3;
+    private int _instanceCount = 3;
     private InstanceTransform[] _instanceTransforms = new InstanceTransform[MAX_INSTANCES];
     private Buffer _instanceBuffer;
     private DeviceMemory _instanceMemory;
@@ -67,14 +67,9 @@ internal sealed unsafe class VkSample {
 
     private SpriteBatch? _spriteBatch;
     private SpriteTexture? _sprite;
-    private RenderTarget? _captureTarget;
-    private RenderTarget? _processingTarget;
-    private SpriteTexture? _captureTexture;
-    private SpriteTexture? _processedTexture;
+    private SpriteTexture? _sprite2;
     private byte[]? _spriteBatchDefaultVertex;
     private byte[]? _spriteBatchDefaultFragment;
-    private byte[]? _spriteBatchGrayscaleFragment;
-    private byte[]? _spriteBatchColorShiftFragment;
 
     private Stopwatch _stopwatch;
     private int _frameCount;
@@ -145,6 +140,7 @@ internal sealed unsafe class VkSample {
 
         Graphics = new(_vkInstance, _vkSurface, bestDevice, _vkDevice);
         _sprite = CreateTextureImage("resources/hashbrown.png");
+        _sprite2 = CreateTextureImage("resources/hashbrown2.png");
 
         var entryPoint = "main"u8;
 
@@ -287,16 +283,9 @@ internal sealed unsafe class VkSample {
 
         var spriteVertexCode = _compiler.CompileShader("resources/spritebatch/spritebatch.vert", ShaderKind.Vertex, true).ToArray();
         var spriteFragmentCode = _compiler.CompileShader("resources/spritebatch/spritebatch.frag", ShaderKind.Fragment, true).ToArray();
-        _spriteBatch = new SpriteBatch(Graphics!, spriteVertexCode, spriteFragmentCode, 256);
+        _spriteBatch = new SpriteBatch(Graphics!, spriteVertexCode, spriteFragmentCode);
         _spriteBatchDefaultVertex = spriteVertexCode;
         _spriteBatchDefaultFragment = spriteFragmentCode;
-        _spriteBatchGrayscaleFragment = _compiler.CompileShader("resources/postprocess/grayscale.frag", ShaderKind.Fragment, true).ToArray();
-        _spriteBatchColorShiftFragment = _compiler.CompileShader("resources/postprocess/color_shift.frag", ShaderKind.Fragment, true).ToArray();
-
-        _captureTarget = Graphics!.CreateRenderTarget(512, 512);
-        _processingTarget = Graphics!.CreateRenderTarget(512, 512);
-        _captureTexture = _captureTarget.CreateSpriteTexture(VkFilter.Linear, VkSamplerAddressMode.ClampToEdge);
-        _processedTexture = _processingTarget.CreateSpriteTexture(VkFilter.Linear, VkSamplerAddressMode.ClampToEdge);
 
         _keyboard = new();
         _mouse = new();
@@ -446,7 +435,7 @@ internal sealed unsafe class VkSample {
         descriptorSets[0] = _descriptorSet;
 
         cmd.BindDescriptorSets(_pipelineLayout, descriptorSets);
-
+    
         var extent = new Vector2(graphics.MainSwapchain.Width, graphics.MainSwapchain.Height);
         cmd.SetViewport(new(0, 0, extent.X, extent.Y));
         cmd.SetScissor(new(0, 0, (uint)extent.X, (uint)extent.Y));
@@ -455,90 +444,20 @@ internal sealed unsafe class VkSample {
         cmd.BindIndexBuffer(_indexBuffer);
 
         cmd.DrawIndexed(_indexBuffer.IndexCount, (uint)_instanceCount);
-
-        bool postProcessReady =
-            _captureTarget is not null &&
-            _processingTarget is not null &&
-            _captureTexture is not null &&
-            _processedTexture is not null &&
-            _spriteBatchDefaultVertex is not null &&
-            _spriteBatchDefaultFragment is not null &&
-            _spriteBatchGrayscaleFragment is not null &&
-            _spriteBatchColorShiftFragment is not null &&
-            _sprite is not null;
-
-        void DrawSpriteRow(SpriteTexture texture, Vector2 startPosition) {
-            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
-            Vector2 spacing = new(128f, 0f);
-            scope.Draw(texture, startPosition, null, Colors.White);
-            scope.Draw(texture, startPosition + spacing, null, Colors.White);
-            scope.Draw(texture, startPosition + spacing * 2f, null, Colors.White);
-            scope.Draw(texture, startPosition + spacing * 3f, null, Colors.White);
+        
+        using (var sb = _spriteBatch.Begin(sortMode: SpriteSortMode.Deferred)) {
+            sb.Draw(new() { Texture = _sprite2, Position = new Vector2(100, 10), Color = Colors.Red, LayerDepth = 0.95f});
+            
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(10, 10), Color = Colors.White, LayerDepth = 0.9f});
+            sb.Draw(new() { Texture = _sprite, Position = new Vector2(150, 100), Color = Colors.White, LayerDepth = 0.9f});
         }
-
-        void DrawFullscreenSprite(SpriteTexture texture, uint width, uint height) {
-            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
-            scope.Draw(texture, new Standard.Rectangle(0f, 0f, (float)width, (float)height), Colors.White);
-        }
-
-        void DrawOriginalAndGrayscale(SpriteTexture original, SpriteTexture grayscale) {
-            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
-            const float displaySize = 320f;
-            const float padding = 40f;
-            const float top = 80f;
-
-            scope.Draw(original, new Standard.Rectangle(padding, top, displaySize, displaySize), Colors.White);
-            scope.Draw(grayscale, new Standard.Rectangle(padding + displaySize + padding, top, displaySize, displaySize), Colors.White);
-        }
-
-        void DrawColorShifted(SpriteTexture inputTexture) {
-            using var scope = spriteBatch.Begin(SpriteSortMode.Deferred);
-            const float displaySize = 320f;
-            const float padding = 40f;
-            const float top = 80f;
-            float left = padding + (displaySize + padding) * 2f;
-
-            scope.Draw(inputTexture, new Standard.Rectangle(left, top, displaySize, displaySize), Colors.White);
-        }
-
-        if (postProcessReady) {
-            RenderTarget captureTarget = _captureTarget!;
-            RenderTarget processingTarget = _processingTarget!;
-            SpriteTexture captureTexture = _captureTexture!;
-            SpriteTexture processedTexture = _processedTexture!;
-            SpriteTexture sourceSprite = _sprite!;
-
-            VkClearValue clearValue = Colors.Red.ToVkClearValue();
-
-            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchDefaultFragment!);
-            using (graphics.PushRenderTarget(captureTarget, clearValue)) {
-                DrawSpriteRow(sourceSprite, new Vector2(48f, 64f));
-            }
-
-            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchGrayscaleFragment!);
-            using (graphics.PushRenderTarget(processingTarget, clearValue)) {
-                DrawFullscreenSprite(captureTexture, processingTarget.Width, processingTarget.Height);
-            }
-
-            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchColorShiftFragment!);
-            DrawColorShifted(processedTexture);
-
-            spriteBatch.SwapShaders(_spriteBatchDefaultVertex!, _spriteBatchDefaultFragment!);
-            DrawOriginalAndGrayscale(captureTexture, processedTexture);
-        }
-        else if (_sprite is not null) {
-            if (_spriteBatchDefaultVertex is not null && _spriteBatchDefaultFragment is not null) {
-                spriteBatch.SwapShaders(_spriteBatchDefaultVertex, _spriteBatchDefaultFragment);
-            }
-            DrawSpriteRow(_sprite, new Vector2(32f, 32f));
-            }
 
         graphics.End();
     }
 
     private SpriteTexture CreateTextureImage(string path) {
         using Image<Rgba32> imageSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
-        //imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
+        imageSharp.Mutate(x => x.Flip(FlipMode.Vertical));
 
         uint imageSize = (uint)(imageSharp.Width * imageSharp.Height * 4);
         var pixelData = new byte[imageSize];
@@ -647,6 +566,8 @@ internal sealed unsafe class VkSample {
         Vulkan.vkDeviceWaitIdle(_vkDevice);
 
         _spriteBatch?.Dispose();
+        
+        _sprite2?.Dispose();
         _sprite?.Dispose();
 
         _pipeline.Dispose();
