@@ -23,4 +23,6 @@ public unsafe struct ImageView : IDisposable{
         Vulkan.vkDestroyImageView(Device, Value);
         Value = default;
     }
+    
+    public static implicit operator VkImageView(ImageView view) => view.Value;
 }

@@ -10,8 +10,8 @@ public unsafe struct Swapchain :  IDisposable {
     
     internal VkSwapchainKHR Value;
 
-    internal VkImage[] Images;
-    internal VkImageView[] ImageViews;
+    public VkImage[] Images;
+    public VkImageView[] ImageViews;
     
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     [Obsolete("default constructor is not supported on swapchains", error: true)] public Swapchain() { }
@@ -97,4 +97,6 @@ public unsafe struct Swapchain :  IDisposable {
         }
         Vulkan.vkDestroySwapchainKHR(Device, Value, null);
     }
+    
+    public static implicit operator VkSwapchainKHR(Swapchain swp) => swp.Value;
 }

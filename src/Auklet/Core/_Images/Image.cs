@@ -36,7 +36,7 @@ public unsafe struct Image : IDisposable {
         Vulkan.ThrowIfFailed(result, "failed to create image!");
     }
     
-    internal Image(LogicalDevice logicalDevice, VkImage existingImage, uint width, uint height, VkFormat format) {
+    public Image(LogicalDevice logicalDevice, VkImage existingImage, uint width, uint height, VkFormat format) {
         Device = logicalDevice;
         Format = format;
         Width = width;
