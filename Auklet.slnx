@@ -3,7 +3,6 @@
     <File Path=".gitignore" />
   </Folder>
   <Project Path="deps/magpie-shaderc/src/ShaderCompilation/ShaderCompilation.csproj" />
-  <Project Path="deps/stained-glass/src/StainedGlass/StainedGlass.csproj" />
   <Project Path="deps/standard/src/Standard/Standard.csproj" />
   <Project Path="src\Auklet\Auklet.csproj" />
 </Solution>
