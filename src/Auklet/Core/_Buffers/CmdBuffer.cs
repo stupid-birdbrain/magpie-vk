@@ -26,12 +26,12 @@ public unsafe struct CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) : IDispos
     public void Reset(VkCommandBufferResetFlags flags = 0) => vkResetCommandBuffer(Value, flags).CheckResult("could not reset cmd buffer!");
     
     public void SetViewport(Vector4 rect, float minDepth = 0f, float maxDepth = 1f) {
-        VkViewport viewport = new(rect.X, rect.Y, rect.W, rect.Z, minDepth, maxDepth);
+        VkViewport viewport = new(rect.X, rect.Y, rect.Z, rect.W, minDepth, maxDepth);
         vkCmdSetViewport(Value, 0, 1, &viewport);
     }
 
     public void SetScissor(Vector4 rect) {
-        VkRect2D rectValue = new((int)rect.X, (int)rect.Y, (uint)rect.W, (uint)rect.Z);
+        VkRect2D rectValue = new((int)rect.X, (int)rect.Y, (uint)rect.Z, (uint)rect.W);
         vkCmdSetScissor(Value, 0, 1, &rectValue);
     }
     
