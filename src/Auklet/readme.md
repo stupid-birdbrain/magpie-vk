@@ -1,3 +1,3 @@
-﻿# magpie-vk
+﻿# auklet
 
 ---
