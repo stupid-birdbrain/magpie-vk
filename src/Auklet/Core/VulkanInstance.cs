@@ -1,5 +1,5 @@
 ﻿using Auklet.Core;
-using Magpie.Utilities;
+using Auklet.Utilities;
 using SDL3;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -125,7 +125,7 @@ public unsafe struct VulkanInstance : IDisposable {
         }
 #if DEBUG
         Console.ForegroundColor =  ConsoleColor.Cyan;
-        Console.WriteLine($"MAGPIE: created magpievk instance, app context: {appName}, {engineName}, {Address.ToString("X")}");
+        Console.WriteLine($"AUKLET: created auklet vulkan instance, app context: {appName}, {engineName}, {Address.ToString("X")}");
         Console.ForegroundColor =  ConsoleColor.Gray;
                 
         Console.WriteLine($"enabled layers: [{string.Join(", ", inputLayers)}]");

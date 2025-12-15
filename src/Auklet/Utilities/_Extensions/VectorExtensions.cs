@@ -1,7 +1,7 @@
 using System.Numerics;
 using Vortice.Vulkan;
 
-namespace Magpie.Utilities;
+namespace Auklet.Utilities;
 
 #if NET10_0_OR_GREATER
 public static class Vec2Ext {

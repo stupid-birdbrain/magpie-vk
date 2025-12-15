@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Magpie.Utilities;
+namespace Auklet.Utilities;
 
 internal static class UnsafeUtilities {
     internal static unsafe byte* ToPointer(this byte[] str) {

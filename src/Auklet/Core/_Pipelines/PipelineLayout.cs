@@ -1,4 +1,4 @@
-﻿using Magpie.Utilities;
+﻿using Auklet.Utilities;
 using Vortice.Vulkan;
 
 namespace Auklet.Core;

@@ -1,4 +1,4 @@
-namespace Magpie.Utilities;
+namespace Auklet.Utilities;
 
 internal static class SpanUtilities {
     internal static unsafe T* GetPointer<T>(this ReadOnlySpan<T> span) where T : unmanaged {

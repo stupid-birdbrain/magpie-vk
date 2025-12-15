@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Magpie.Utilities;
+namespace Auklet.Utilities;
 
 internal static class StringExtensions {
     extension(string str) {
