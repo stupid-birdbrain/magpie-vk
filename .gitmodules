@@ -1,6 +1,0 @@
-[submodule "deps/standard"]
-	path = deps/standard
-	url = https://github.com/stupid-birdbrain/standard.git
-[submodule "deps/magpie-shaderc"]
-	path = deps/magpie-shaderc
-	url = https://github.com/stupid-birdbrain/magpie-shaderc.git

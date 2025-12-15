@@ -1,4 +1,5 @@
-﻿using Standard;
+﻿using System.Drawing;
+using System.Numerics;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -24,13 +25,13 @@ public unsafe struct CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) : IDispos
 
     public void Reset(VkCommandBufferResetFlags flags = 0) => vkResetCommandBuffer(Value, flags).CheckResult("could not reset cmd buffer!");
     
-    public void SetViewport(Rectangle rect, float minDepth = 0f, float maxDepth = 1f) {
-        VkViewport viewport = new(rect.X, rect.Y, rect.Width, rect.Height, minDepth, maxDepth);
+    public void SetViewport(Vector4 rect, float minDepth = 0f, float maxDepth = 1f) {
+        VkViewport viewport = new(rect.X, rect.Y, rect.W, rect.Z, minDepth, maxDepth);
         vkCmdSetViewport(Value, 0, 1, &viewport);
     }
 
-    public void SetScissor(Rectangle rect) {
-        VkRect2D rectValue = new((int)rect.X, (int)rect.Y, (uint)rect.Width, (uint)rect.Height);
+    public void SetScissor(Vector4 rect) {
+        VkRect2D rectValue = new((int)rect.X, (int)rect.Y, (uint)rect.W, (uint)rect.Z);
         vkCmdSetScissor(Value, 0, 1, &rectValue);
     }
     
