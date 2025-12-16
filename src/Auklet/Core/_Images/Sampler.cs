@@ -48,35 +48,20 @@ public unsafe struct Sampler : IDisposable {
     }
 }
 
-public struct SamplerCreateParameters {
-    public VkFilter MagFilter;
-    public VkFilter MinFilter;
-    public VkSamplerMipmapMode MipmapMode;
-    public bool Anisotropy;
-    public float MaxAnisotropy;
-    public VkSamplerAddressMode AddressModeX;
-    public VkSamplerAddressMode AddressModeY;
-    public VkSamplerAddressMode AddressModeW;
-    public float MipLoadBias;
-    public float MinLod;
-    public float MaxLod;
-    public VkCompareOp CompareOperation;
+public struct SamplerCreateParameters(VkFilter filter, VkSamplerAddressMode addressMode) {
+    public VkFilter MagFilter = filter;
+    public VkFilter MinFilter = filter;
+    public VkSamplerMipmapMode MipmapMode = filter == VkFilter.Nearest ? VkSamplerMipmapMode.Nearest : VkSamplerMipmapMode.Linear;
+    public bool Anisotropy = true;
+    public float MaxAnisotropy = 16.0f;
+    public VkSamplerAddressMode AddressModeX = addressMode;
+    public VkSamplerAddressMode AddressModeY = addressMode;
+    public VkSamplerAddressMode AddressModeW = addressMode;
+    public float MipLoadBias = 0.0f;
+    public float MinLod = 0.0f;
+    public float MaxLod = 0.0f;
+    public VkCompareOp CompareOperation = VkCompareOp.Always;
     public bool CompareEnable;
     
     public SamplerCreateParameters() : this(VkFilter.Linear, VkSamplerAddressMode.Repeat) { }
-    
-    public SamplerCreateParameters(VkFilter filter, VkSamplerAddressMode addressMode) {
-        MinFilter = filter;
-        MagFilter = filter;
-        MipmapMode = filter == VkFilter.Nearest ? VkSamplerMipmapMode.Nearest : VkSamplerMipmapMode.Linear;
-        Anisotropy = true;
-        MaxAnisotropy = 16.0f;
-        AddressModeX = addressMode;
-        AddressModeY = addressMode;
-        AddressModeW = addressMode;
-        MipLoadBias = 0.0f;
-        MinLod = 0.0f;
-        MaxLod = 0.0f;
-        CompareOperation = VkCompareOp.Always;
-    }
 }
