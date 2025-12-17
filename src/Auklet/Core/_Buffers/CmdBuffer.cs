@@ -84,6 +84,11 @@ public unsafe struct CmdBuffer(CmdPool cmdPool, VkCommandBuffer value) : IDispos
         }
     }
 
+    public void PushConstants<T>(PipelineLayout layout, VkShaderStageFlags flags, in T value) where T : unmanaged {
+        fixed (T* ptr = &value)
+            vkCmdPushConstants(this, layout, flags, 0, (uint)sizeof(T), ptr);
+    }
+
     public void BindIndexBuffer(in IndexBuffer indexBuffer, ulong offset = 0, VkIndexType indexType = VkIndexType.Uint32) 
         => vkCmdBindIndexBuffer(Value, indexBuffer.Buffer.Value, offset, indexType);
     
